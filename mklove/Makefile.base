@@ -94,6 +94,9 @@ $(LIBNAME).a:	$(OBJS)
 	@printf "$(MKL_YELLOW)Creating static library $@$(MKL_CLR_RESET)\n"
 	$(AR) rcs$(ARFLAGS) $@ $(OBJS)
 
+ifeq ($(MKL_NO_SELFCONTAINED_STATIC_LIB),y)
+$(LIBNAME)-static.a:
+else
 $(LIBNAME)-static.a: $(LIBNAME).a
 ifneq ($(MKL_STATIC_LIBS),)
 	@printf "$(MKL_YELLOW)Creating self-contained static library $@$(MKL_CLR_RESET)\n"
@@ -107,6 +110,7 @@ else
 	done ; \
 	echo "SAVE" >> $$_tmp ; \
 	echo "END" >> $$_tmp ; \
+	cat $$_tmp ; \
 	ar -M < $$_tmp || exit 1 ; \
 	rm $$_tmp)
 endif
@@ -115,6 +119,7 @@ ifneq ($(MKL_DYNAMIC_LIBS),)
 endif
 else
 	@printf "$(MKL_RED)WARNING:$(MKL_YELLOW) $@: Not creating self-contained static library $@: no static libraries available/enabled$(MKL_CLR_RESET)\n"
+endif
 endif
 
 
