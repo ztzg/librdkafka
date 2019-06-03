@@ -107,7 +107,7 @@ else
 	done ; \
 	echo "SAVE" >> $$_tmp ; \
 	echo "END" >> $$_tmp ; \
-	ar -M $$_tmp || exit 1 ; \
+	ar -M < $$_tmp || exit 1 ; \
 	rm $$_tmp)
 endif
 ifneq ($(MKL_DYNAMIC_LIBS),)
