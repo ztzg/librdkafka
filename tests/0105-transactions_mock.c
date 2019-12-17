@@ -39,24 +39,48 @@
  */
 
 
+static int allowed_error;
+
+/**
+ * @brief Decide what error_cb's will cause the test to fail.
+ */
+static int error_is_fatal_cb (rd_kafka_t *rk, rd_kafka_resp_err_t err,
+                              const char *reason) {
+        if (err == allowed_error) {
+                TEST_SAY("Ignoring allowed error: %s: %s\n",
+                         rd_kafka_err2name(err), reason);
+                return 0;
+        }
+        return 1;
+}
+
+
 
 /**
  * @brief Create a transactional producer and a mock cluster.
  */
-static rd_kafka_t *create_txn_producer (rd_kafka_mock_cluster_t **mclusterp) {
+static rd_kafka_t *create_txn_producer (rd_kafka_mock_cluster_t **mclusterp,
+                                        const char *transactional_id,
+                                        int broker_cnt) {
         rd_kafka_conf_t *conf;
         rd_kafka_t *rk;
+        char numstr[8];
+
+        rd_snprintf(numstr, sizeof(numstr), "%d", broker_cnt);
 
         test_conf_init(&conf, NULL, 0);
 
-        test_conf_set(conf, "transactional.id", "txnid");
-        test_conf_set(conf, "test.mock.num.brokers", "3");
+        test_conf_set(conf, "transactional.id", transactional_id);
+        test_conf_set(conf, "test.mock.num.brokers", numstr);
+        rd_kafka_conf_set_dr_msg_cb(conf, test_dr_msg_cb);
+
+        test_curr->ignore_dr_err = rd_false;
 
         rk = test_create_handle(RD_KAFKA_PRODUCER, conf);
 
         if (mclusterp) {
                 *mclusterp = rd_kafka_handle_mock_cluster(rk);
-                TEST_ASSERT(*mclusterp,  "failed to create mock cluster");
+                TEST_ASSERT(*mclusterp, "failed to create mock cluster");
         }
 
         return rk;
@@ -76,7 +100,7 @@ static void do_test_txn_recoverable_errors (void) {
 
         TEST_SAY(_C_MAG "[ %s ]\n", __FUNCTION__);
 
-        rk = create_txn_producer(&mcluster);
+        rk = create_txn_producer(&mcluster, "txnid", 3);
 
         /*
          * Inject som InitProducerId errors that causes retries
@@ -180,7 +204,9 @@ static void do_test_txn_abortable_errors (void) {
 
         TEST_SAY(_C_MAG "[ %s ]\n", __FUNCTION__);
 
-        rk = create_txn_producer(&mcluster);
+        rk = create_txn_producer(&mcluster, "txnid", 3);
+
+        test_curr->ignore_dr_err = rd_true;
 
         TEST_CALL__(rd_kafka_init_transactions(rk, 5000,
                                                errstr, sizeof(errstr)));
@@ -294,12 +320,197 @@ static void do_test_txn_abortable_errors (void) {
 }
 
 
+/**
+ * @brief Test error handling and recover for when broker goes down during
+ *        an ongoing transaction.
+ */
+static void do_test_txn_broker_down_in_txn (rd_bool_t down_coord) {
+        rd_kafka_t *rk;
+        rd_kafka_mock_cluster_t *mcluster;
+        int32_t coord_id, leader_id, down_id;
+        const char *down_what;
+        rd_kafka_resp_err_t err;
+        char errstr[512];
+        const char *topic = "test";
+        const char *transactional_id = "txnid";
+        int msgcnt = 1000;
+        int remains = 0;
+
+        /* Assign coordinator and leader to two different brokers */
+        coord_id = 1;
+        leader_id = 2;
+        if (down_coord) {
+                down_id = coord_id;
+                down_what = "coordinator";
+        } else {
+                down_id = leader_id;
+                down_what = "leader";
+        }
+
+        TEST_SAY(_C_MAG "[ Test %s down ]\n", down_what);
+
+        rk = create_txn_producer(&mcluster, transactional_id, 3);
+
+        /* Broker down is not a test-failing error */
+        allowed_error = RD_KAFKA_RESP_ERR__TRANSPORT;
+        test_curr->is_fatal_cb = error_is_fatal_cb;
+
+        err = rd_kafka_mock_topic_create(mcluster, topic, 1, 3);
+        TEST_ASSERT(!err, "Failed to create topic: %s", rd_kafka_err2str(err));
+
+        rd_kafka_mock_coordinator_set(mcluster, "transaction", transactional_id,
+                                      coord_id);
+        rd_kafka_mock_partition_set_leader(mcluster, topic, 0, leader_id);
+
+        /* Start transactioning */
+        TEST_SAY("Starting transaction\n");
+        TEST_CALL__(rd_kafka_init_transactions(rk, 5000,
+                                               errstr, sizeof(errstr)));
+
+        TEST_CALL__(rd_kafka_begin_transaction(rk, errstr, sizeof(errstr)));
+
+        test_produce_msgs2_nowait(rk, topic, 0, RD_KAFKA_PARTITION_UA,
+                                  0, msgcnt / 2, NULL, 0, &remains);
+
+        TEST_SAY("Bringing down %s %"PRId32"\n", down_what, down_id);
+        rd_kafka_mock_broker_set_down(mcluster, down_id);
+
+        rd_kafka_flush(rk, 3000);
+
+        /* Produce remaining messages */
+        test_produce_msgs2_nowait(rk, topic, 0, RD_KAFKA_PARTITION_UA,
+                                  msgcnt / 2, msgcnt / 2, NULL, 0, &remains);
+
+        rd_sleep(2);
+
+        TEST_SAY("Bringing up %s %"PRId32"\n", down_what, down_id);
+        rd_kafka_mock_broker_set_up(mcluster, down_id);
+
+        TEST_CALL__(rd_kafka_commit_transaction(rk, -1,
+                                                errstr, sizeof(errstr)));
+
+        TEST_ASSERT(remains == 0,
+                    "%d message(s) were not produced\n", remains);
+
+        rd_kafka_destroy(rk);
+
+        test_curr->is_fatal_cb = NULL;
+
+        TEST_SAY(_C_GRN "[ Test %s down: PASS ]\n", down_what);
+
+}
+
+
+
+/**
+ * @brief Advance the coord_id to the next broker.
+ */
+static void set_next_coord (rd_kafka_mock_cluster_t *mcluster,
+                            const char *transactional_id, int broker_cnt,
+                            int32_t *coord_idp) {
+        int32_t new_coord_id;
+
+        new_coord_id = 1 + ((*coord_idp) % (broker_cnt));
+        TEST_SAY("Changing transaction coordinator from %"PRId32
+                 " to %"PRId32"\n", *coord_idp, new_coord_id);
+        rd_kafka_mock_coordinator_set(mcluster, "transaction",
+                                      transactional_id, new_coord_id);
+
+        *coord_idp = new_coord_id;
+}
+
+/**
+ * @brief Switch coordinator during a transaction.
+ *
+ * @remark Currently fails due to insufficient coord switch handling.
+ */
+static void do_test_txn_switch_coordinator (void) {
+        rd_kafka_t *rk;
+        rd_kafka_mock_cluster_t *mcluster;
+        int32_t coord_id;
+        char errstr[512];
+        const char *topic = "test";
+        const char *transactional_id = "txnid";
+        const int broker_cnt = 5;
+        const int iterations = 20;
+        int i;
+
+        TEST_SAY(_C_MAG "[ Test switching coordinators ]\n");
+
+        rk = create_txn_producer(&mcluster, transactional_id, broker_cnt);
+
+        coord_id = 1;
+        rd_kafka_mock_coordinator_set(mcluster, "transaction", transactional_id,
+                                      coord_id);
+
+        /* Start transactioning */
+        TEST_SAY("Starting transaction\n");
+        TEST_CALL__(rd_kafka_init_transactions(rk, 5000,
+                                               errstr, sizeof(errstr)));
+
+        for (i = 0 ; i < iterations ; i++) {
+                const int msgcnt = 100;
+                int remains = 0;
+
+                set_next_coord(mcluster, transactional_id,
+                               broker_cnt, &coord_id);
+
+                TEST_CALL__(rd_kafka_begin_transaction(rk, errstr,
+                                                       sizeof(errstr)));
+
+                test_produce_msgs2(rk, topic, 0, RD_KAFKA_PARTITION_UA,
+                                   0, msgcnt / 2, NULL, 0);
+
+                if (!(i % 3))
+                        set_next_coord(mcluster, transactional_id,
+                                       broker_cnt, &coord_id);
+
+                /* Produce remaining messages */
+                test_produce_msgs2_nowait(rk, topic, 0, RD_KAFKA_PARTITION_UA,
+                                          msgcnt / 2, msgcnt / 2, NULL, 0,
+                                          &remains);
+
+                if ((i & 1) || !(i % 8))
+                        set_next_coord(mcluster, transactional_id,
+                                       broker_cnt, &coord_id);
+
+
+                if (!(i % 5)) {
+                        test_curr->ignore_dr_err = rd_false;
+                        TEST_CALL__(rd_kafka_commit_transaction(
+                                            rk, -1,
+                                            errstr, sizeof(errstr)));
+                } else {
+                        test_curr->ignore_dr_err = rd_true;
+                        TEST_CALL__(rd_kafka_abort_transaction(
+                                            rk, -1,
+                                            errstr, sizeof(errstr)));
+                }
+        }
+
+
+        rd_kafka_destroy(rk);
+
+        TEST_SAY(_C_GRN "[ Test switching coordinators: PASS ]\n");
+}
+
 
 int main_0105_transactions_mock (int argc, char **argv) {
 
         do_test_txn_recoverable_errors();
 
         do_test_txn_abortable_errors();
+
+        /* Bring down the coordinator */
+        do_test_txn_broker_down_in_txn(rd_true);
+
+        /* Bring down partition leader */
+        do_test_txn_broker_down_in_txn(rd_false);
+
+        /* Switch coordinator */
+        // FIXME: currently fails
+        if (0)
+                do_test_txn_switch_coordinator();
 
         return 0;
 }

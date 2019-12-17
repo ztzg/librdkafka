@@ -44,28 +44,6 @@
  * are treated as fatal errors, unless the producer is transactional in which
  * case the current transaction will fail (also known as an abortable error).
  *
- *
- *
- *
- * State machine:
- *
- *  [INIT]
- *    |
- *    |<-----------------------------------.
- *    |                                    |
- * <Get any available broker> --not-avail--`
- *    |
- *    |
- * <Need coordinator (is_transactional()> --no--.
- *    |
- *    |
- * (FindCoordinatorRequest async) --not-supported---> (Fatal error) --> [FATAL]
- *    |
- *  
- *   FIXME
- *
- *
- *
  */
 
 static void rd_kafka_idemp_restart_request_pid_tmr (rd_kafka_t *rk,
@@ -181,13 +159,19 @@ static rd_kafka_broker_t *rd_kafka_idemp_broker_any (rd_kafka_t *rk) {
 static void rd_kafka_idemp_coord_monitor_cb (rd_kafka_broker_t *rkb) {
         rd_kafka_t *rk = rkb->rkb_rk;
         rd_kafka_broker_state_t state = rd_kafka_broker_get_state(rkb);
+        rd_bool_t is_up;
 
         if (rk->rk_eos.txn_coord != rkb) {
                 /* Outdated, the coordinator changed, ignore. */
                 return;
         }
 
-        if (!rd_kafka_broker_state_is_up(state)) {
+        is_up = rd_kafka_broker_state_is_up(state);
+        rd_rkb_dbg(rkb, EOS, "COORD",
+                   "Transaction coordinator is now %s",
+                   is_up ? "up" : "down");
+
+        if (!is_up) {
                 /* Broker is down.
                  * Start query timer, if not already started. */
                 // FIXME
@@ -454,15 +438,15 @@ int rd_kafka_idemp_request_pid (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
 
         rd_kafka_wrlock(rk);
 
-        rd_kafka_dbg(rk, EOS, "REQPID",
-                     "Requesting PID in state %s: %s",
-                     rd_kafka_idemp_state2str(rk->rk_eos.idemp_state),
-                     reason);
-
         if (rk->rk_eos.idemp_state != RD_KAFKA_IDEMP_STATE_REQ_PID) {
                 rd_kafka_wrunlock(rk);
                 return 0;
         }
+
+        rd_kafka_dbg(rk, EOS, "REQPID",
+                     "Requesting PID in state %s: %s",
+                     rd_kafka_idemp_state2str(rk->rk_eos.idemp_state),
+                     reason);
 
         if (rd_kafka_is_transactional(rk) && rk->rk_eos.txn_coord) {
                 if (!rd_kafka_broker_is_up(rk->rk_eos.txn_coord)) {
@@ -574,8 +558,8 @@ static void rd_kafka_idemp_request_pid_tmr_cb (rd_kafka_timers_t *rkts,
  */
 static void rd_kafka_idemp_restart_request_pid_tmr (rd_kafka_t *rk,
                                                     rd_bool_t immediate) {
-        rd_kafka_dbg(rk, EOS, "TXN", "Start request_pid_tmr immediate=%d",
-                     immediate);
+        rd_kafka_dbg(rk, EOS, "TXN", "Starting PID requesting timer%s",
+                     immediate ? " (fire immediately)" : "");
         rd_kafka_timer_start_oneshot(&rk->rk_timers,
                                      &rk->rk_eos.request_pid_tmr, rd_true,
                                      1000 * (immediate ? 1 : 500/*500ms*/),

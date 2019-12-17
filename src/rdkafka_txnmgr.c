@@ -542,11 +542,11 @@ static void rd_kafka_txn_handle_AddPartitionsToTxn (rd_kafka_t *rk,
                                 break;
 
                         case RD_KAFKA_RESP_ERR_NOT_COORDINATOR:
+                        case RD_KAFKA_RESP_ERR_COORDINATOR_NOT_AVAILABLE:
                                 rd_kafka_coord_cache_evict(&rk->rk_coord_cache,
                                                            rkb);
-                                /* FALLTHRU */
-                        case RD_KAFKA_RESP_ERR_COORDINATOR_NOT_AVAILABLE:
-                                p_actions |= RD_KAFKA_ERR_ACTION_REFRESH;
+                                p_actions |= RD_KAFKA_ERR_ACTION_RETRY|
+                                        RD_KAFKA_ERR_ACTION_REFRESH;
                                 break;
 
                         case RD_KAFKA_RESP_ERR_CONCURRENT_TRANSACTIONS:
@@ -584,17 +584,19 @@ static void rd_kafka_txn_handle_AddPartitionsToTxn (rd_kafka_t *rk,
                                 errcnt++;
                                 actions |= p_actions;
 
-                                if (!(p_actions & (RD_KAFKA_ERR_ACTION_FATAL |
-                                                   RD_KAFKA_ERR_ACTION_PERMANENT)))
-                                        rd_rkb_dbg(rkb, EOS,
-                                                   "ADDPARTS",
-                                                   "AddPartitionsToTxn response: "
-                                                   "partition \"%.*s\": "
-                                                   "[%"PRId32"]: %s",
-                                                   RD_KAFKAP_STR_PR(&Topic),
-                                                   Partition,
-                                                   rd_kafka_err2str(
-                                                           ErrorCode));
+                                if (!(p_actions &
+                                      (RD_KAFKA_ERR_ACTION_FATAL |
+                                       RD_KAFKA_ERR_ACTION_PERMANENT)))
+                                        rd_rkb_dbg(
+                                                rkb, EOS,
+                                                "ADDPARTS",
+                                                "AddPartitionsToTxn response: "
+                                                "partition \"%.*s\": "
+                                                "[%"PRId32"]: %s",
+                                                RD_KAFKAP_STR_PR(&Topic),
+                                                Partition,
+                                                rd_kafka_err2str(
+                                                        ErrorCode));
                                 else
                                         rd_rkb_log(rkb, LOG_ERR,
                                                    "ADDPARTS",
@@ -1359,6 +1361,9 @@ static void rd_kafka_txn_handle_TxnOffsetCommit (rd_kafka_t *rk,
                 RD_KAFKA_ERR_ACTION_RETRY,
                 RD_KAFKA_RESP_ERR_COORDINATOR_LOAD_IN_PROGRESS,
 
+                RD_KAFKA_ERR_ACTION_RETRY|RD_KAFKA_ERR_ACTION_REFRESH,
+                RD_KAFKA_RESP_ERR_NOT_COORDINATOR,
+
                 // FIXME
 
                 RD_KAFKA_ERR_ACTION_END);
@@ -1828,7 +1833,7 @@ static void rd_kafka_txn_handle_EndTxn (rd_kafka_t *rk,
                 // RD_UT_COVERAGE();
 
         } else if (actions & RD_KAFKA_ERR_ACTION_REFRESH) {
-                rd_rkb_dbg(rkb, EOS, "COMMITTXN",
+                rd_rkb_dbg(rkb, EOS, "TXNCOMMIT",
                            "EndTxn %s failed: %s: refreshing coordinator",
                            is_commit ? "commit" : "abort",
                            rd_kafka_err2str(err));
@@ -1996,6 +2001,10 @@ rd_kafka_commit_transaction (rd_kafka_t *rk, int timeout_ms /*FIXME:handle*/,
 
         txn_remains_ms = rk->rk_conf.eos.transaction_timeout_ms; // FIXME
 
+        rd_kafka_dbg(rk, EOS, "TXNCOMMIT",
+                     "Flushing %d outstanding message(s) prior to commit\n",
+                     rd_kafka_outq_len(rk));
+
         /* Wait for queued messages to be delivered, limited by
          * the remaining transaction lifetime. */
         err = rd_kafka_flush(rk, txn_remains_ms);
@@ -2111,7 +2120,7 @@ rd_kafka_txn_op_abort_transaction (rd_kafka_t *rk,
         }
 
         if (!rk->rk_eos.txn_req_cnt) {
-                rd_kafka_dbg(rk, EOS, "ABORT",
+                rd_kafka_dbg(rk, EOS, "TXNABORT",
                              "No partitions registered: not sending EndTxn");
                 rd_kafka_txn_set_state(rk, RD_KAFKA_TXN_STATE_READY);
                 goto err;
@@ -2174,6 +2183,10 @@ rd_kafka_abort_transaction (rd_kafka_t *rk, int timeout_ms,
         if (err)
                 return err;
 
+        rd_kafka_dbg(rk, EOS, "TXNABORT",
+                     "Purging and flushing %d outstanding message(s) prior "
+                     "to abort\n",
+                     rd_kafka_outq_len(rk));
 
         /* Purge all queued messages.
          * Will need to wait for messages in-flight since purging these

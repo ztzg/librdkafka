@@ -1759,11 +1759,13 @@ void test_dr_msg_cb (rd_kafka_t *rk, const rd_kafka_message_t *rkmessage,
                 }
         }
 
-	if (*remainsp == 0)
-		TEST_FAIL("Too many messages delivered (remains %i)",
-			  *remainsp);
+	if (remainsp) {
+                TEST_ASSERT(*remainsp > 0,
+                            "Too many messages delivered (remains %i)",
+                            *remainsp);
 
-	(*remainsp)--;
+                (*remainsp)--;
+        }
 
         if (test_curr->produce_sync)
                 test_curr->produce_sync_err = rkmessage->err;

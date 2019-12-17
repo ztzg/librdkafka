@@ -5,7 +5,7 @@ librdkafka is a high performance C implementation of the Apache
 Kafka client, providing a reliable and performant client for production use.
 librdkafka also provides a native C++ interface.
 
-<!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-refresh-toc -->
+<!-- markdown-toc start - Don't edit this section. Run M-x markdown-toc-generate-toc again -->
 **Table of Contents**
 
 - [Introduction to librdkafka - the Apache Kafka C/C++ client library](#introduction-to-librdkafka---the-apache-kafka-cc-client-library)
@@ -37,6 +37,11 @@ librdkafka also provides a native C++ interface.
                 - [RD_KAFKA_RESP_ERR_UNKNOWN_PRODUCER_ID](#rdkafkaresperrunknownproducerid)
                 - [Standard errors](#standard-errors)
                 - [Message persistence status](#message-persistence-status)
+        - [Transactional Producer](#transactional-producer)
+            - [Error handling](#error-handling)
+            - [Old producer fencing](#old-producer-fencing)
+            - [Configuration considerations](#configuration-considerations)
+        - [Exactly Once Semantics (EOS) and transactions](#exactly-once-semantics-eos-and-transactions)
     - [Usage](#usage)
         - [Documentation](#documentation)
         - [Initialization](#initialization)
@@ -707,13 +712,70 @@ This method should be called by the application on delivery report error.
 
 ### Transactional Producer
 
-#### FIXME: misc
 
-To make sure messages time out (in case of connectivity problems, etc) within
-the transaction, the `message.timeout.ms` configuration property must be
-set lower than the `transaction.timeout.ms`.
-If `message.timeout.ms` is not explicitly configured it will be adjusted
-automatically.
+#### Error handling
+
+Using the transactional producer simplifies error handling compared to the
+standard or idempotent producer, a transactional application will only need
+to care about two different types of errors:
+
+ * Fatal errors - the application must cease operations and destroy the
+   producer instance if any of the transactional APIs return
+   `RD_KAFKA_RESP_ERR__FATAL`. This is an unrecoverable type of error.
+ * Abortable errors - if any of the transactional APIs return a non-fatal
+   error code the current transaction has failed and the application
+   must call `rd_kafka_abort_transaction()`, rewind its input to the
+   point before the current transaction started, and attempt a new transaction
+   by calling `rd_kafka_begin_transaction()`, etc.
+
+While the application should log the actual fatal or abortable errors, there
+is no need for the application to handle the underlying errors specifically.
+
+For fatal errors use `rd_kafka_fatal_error()` to extract the underlying
+error code and reason.
+For abortable errors use the error code and error string returned by the
+transactional API that failed.
+
+This error handling logic roughly translates to the following pseudo code:
+
+```
+main() {
+
+    try {
+       init_transactions()
+
+       while (run) {
+
+           begin_transaction()
+
+           start_checkpoint = consumer.position()
+
+           for input in consumer.poll():
+
+               output = process(input)
+
+               stored_offsets.update(input.partition, input.offset)
+
+               produce(output)
+
+               if time_spent_in_txn > 10s:
+                    break
+
+           send_offsets_to_transaction(stored_offsets)
+
+           commit_transaction()
+
+    } except FatalError as ex {
+        log("Fatal exception: ", ex)
+        raise(ex)
+
+    } except Exception as ex {
+        log("Current transaction failed: ", ex)
+        abort_transaction()
+        consumer.seek(start_checkpoint)
+        continue
+    }
+```
 
 
 #### Old producer fencing
@@ -723,6 +785,17 @@ If a new transactional producer instance is started with the same
 instance will be fenced off at the next produce, commit or abort attempt, by
 raising a fatal error with the error code set to
 `RD_KAFKA_RESP_ERR__FENCED`.
+
+
+#### Configuration considerations
+
+To make sure messages time out (in case of connectivity problems, etc) within
+the transaction, the `message.timeout.ms` configuration property must be
+set lower than the `transaction.timeout.ms`, this is enforced when
+creating the producer instance.
+If `message.timeout.ms` is not explicitly configured it will be adjusted
+automatically.
+
 
 
 
