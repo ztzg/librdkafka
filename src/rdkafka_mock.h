@@ -148,6 +148,21 @@ void rd_kafka_mock_topic_set_error (rd_kafka_mock_cluster_t *mcluster,
 
 
 /**
+ * @brief Creates a topic.
+ *
+ * This is an alternative to automatic topic creation as performed by
+ * the client itself.
+ *
+ * @remark The Topic Admin API (CreateTopics) is not supported by the
+ *         mock broker.
+ */
+RD_EXPORT rd_kafka_resp_err_t
+rd_kafka_mock_topic_create (rd_kafka_mock_cluster_t *mcluster,
+                            const char *topic, int partition_cnt,
+                            int replication_factor);
+
+
+/**
  * @brief Sets the partition leader.
  *
  * The topic will be created if it does not exist.
@@ -188,11 +203,46 @@ rd_kafka_mock_partition_set_follower_wmarks (rd_kafka_mock_cluster_t *mcluster,
 
 
 /**
- * @brief Set's the broker's rack as reported in Metadata to the client.
+ * @brief Disconnects the broker and disallows any new connections.
+ *        This does NOT trigger leader change.
+ */
+RD_EXPORT rd_kafka_resp_err_t
+rd_kafka_mock_broker_set_down (rd_kafka_mock_cluster_t *mcluster,
+                               int32_t broker_id);
+
+/**
+ * @brief Makes the broker accept connections again.
+ *        This does NOT trigger leader change.
+ */
+RD_EXPORT rd_kafka_resp_err_t
+rd_kafka_mock_broker_set_up (rd_kafka_mock_cluster_t *mcluster,
+                             int32_t broker_id);
+
+
+
+/**
+ * @brief Sets the broker's rack as reported in Metadata to the client.
  */
 RD_EXPORT rd_kafka_resp_err_t
 rd_kafka_mock_broker_set_rack (rd_kafka_mock_cluster_t *mcluster,
                                int32_t broker_id, const char *rack);
+
+
+
+/**
+ * @brief Explicitly sets the coordinator. If this API is not a standard
+ *        hashing scheme will be used.
+ *
+ * @param key_type  "transaction" or "group"
+ * @param key       The transactional.id or group.id
+ * @param broker_id The new coordinator, does not have to be a valid broker.
+ */
+RD_EXPORT rd_kafka_resp_err_t
+rd_kafka_mock_coordinator_set (rd_kafka_mock_cluster_t *mcluster,
+                               const char *key_type, const char *key,
+                               int32_t broker_id);
+
+
 
 /**@}*/
 

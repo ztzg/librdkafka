@@ -78,6 +78,7 @@ typedef struct rd_kafka_mock_broker_s {
         char    advertised_listener[128];
         int     port;
         char   *rack;
+        rd_bool_t up;
 
         rd_socket_t  listen_s;   /**< listen() socket */
 
@@ -164,6 +165,16 @@ typedef struct rd_kafka_mock_topic_s {
         struct rd_kafka_mock_cluster_s *cluster;
 } rd_kafka_mock_topic_t;
 
+/**
+ * @struct Explicitly set coordinator.
+ */
+typedef struct rd_kafka_mock_coord_s {
+        TAILQ_ENTRY(rd_kafka_mock_coord_s) link;
+        rd_kafka_coordtype_t type;
+        char   *key;
+        int32_t broker_id;
+} rd_kafka_mock_coord_t;
+
 
 typedef void (rd_kafka_mock_io_handler_t) (struct rd_kafka_mock_cluster_s
                                            *mcluster,
@@ -190,6 +201,9 @@ struct rd_kafka_mock_cluster_s {
 
         TAILQ_HEAD(, rd_kafka_mock_topic_s) topics;
         int topic_cnt;
+
+        /**< Explicit coordinators (set with mock_set_coordinator()) */
+        TAILQ_HEAD(, rd_kafka_mock_coord_s) coords;
 
         char *bootstraps; /**< bootstrap.servers */
 

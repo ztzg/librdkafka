@@ -1137,6 +1137,12 @@ rd_kafka_mock_handle_InitProducerId (rd_kafka_mock_connection_t *mconn,
         err = rd_kafka_mock_next_request_error(mcluster,
                                                rkbuf->rkbuf_reqhdr.ApiKey);
 
+        if (!err &&
+            rd_kafka_mock_cluster_get_coord(mcluster,
+                                            RD_KAFKA_COORD_TXN,
+                                            &TransactionalId) != mconn->broker)
+                err = RD_KAFKA_RESP_ERR_NOT_COORDINATOR;
+
         /* ErrorCode */
         rd_kafka_buf_write_i16(resp, err);
 
@@ -1193,6 +1199,12 @@ rd_kafka_mock_handle_AddPartitionsToTxn (rd_kafka_mock_connection_t *mconn,
         /* Inject error */
         all_err = rd_kafka_mock_next_request_error(mcluster,
                                                    rkbuf->rkbuf_reqhdr.ApiKey);
+
+        if (!all_err &&
+            rd_kafka_mock_cluster_get_coord(mcluster,
+                                            RD_KAFKA_COORD_TXN,
+                                            &TransactionalId) != mconn->broker)
+                all_err = RD_KAFKA_RESP_ERR_NOT_COORDINATOR;
 
         while (TopicsCnt-- > 0) {
                 rd_kafkap_str_t Topic;
@@ -1270,6 +1282,12 @@ rd_kafka_mock_handle_AddOffsetsToTxn (rd_kafka_mock_connection_t *mconn,
         err = rd_kafka_mock_next_request_error(mcluster,
                                                rkbuf->rkbuf_reqhdr.ApiKey);
 
+        if (!err &&
+            rd_kafka_mock_cluster_get_coord(mcluster,
+                                            RD_KAFKA_COORD_TXN,
+                                            &TransactionalId) != mconn->broker)
+                err = RD_KAFKA_RESP_ERR_NOT_COORDINATOR;
+
         /* Response: ErrorCode */
         rd_kafka_buf_write_i16(resp, err);
 
@@ -1317,6 +1335,12 @@ rd_kafka_mock_handle_TxnOffsetCommit (rd_kafka_mock_connection_t *mconn,
         /* Inject error */
         err = rd_kafka_mock_next_request_error(mcluster,
                                                rkbuf->rkbuf_reqhdr.ApiKey);
+
+        if (!err &&
+            rd_kafka_mock_cluster_get_coord(mcluster,
+                                            RD_KAFKA_COORD_TXN,
+                                            &TransactionalId) != mconn->broker)
+                err = RD_KAFKA_RESP_ERR_NOT_COORDINATOR;
 
         while (TopicsCnt-- > 0) {
                 rd_kafkap_str_t Topic;
@@ -1404,6 +1428,12 @@ rd_kafka_mock_handle_EndTxn (rd_kafka_mock_connection_t *mconn,
         /* Inject error */
         err = rd_kafka_mock_next_request_error(mcluster,
                                                rkbuf->rkbuf_reqhdr.ApiKey);
+
+        if (!err &&
+            rd_kafka_mock_cluster_get_coord(mcluster,
+                                            RD_KAFKA_COORD_TXN,
+                                            &TransactionalId) != mconn->broker)
+                err = RD_KAFKA_RESP_ERR_NOT_COORDINATOR;
 
         /* ErrorCode */
         rd_kafka_buf_write_i16(resp, err);
