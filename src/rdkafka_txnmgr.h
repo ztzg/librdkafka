@@ -147,6 +147,9 @@ void rd_kafka_txn_set_fatal_error (rd_kafka_t *rk,
                                    rd_kafka_resp_err_t err,
                                    const char *fmt, ...);
 
+rd_bool_t rd_kafka_txn_coord_set (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
+                                  const char *fmt, ...);
+
 void rd_kafka_txns_term (rd_kafka_t *rk);
 void rd_kafka_txns_init (rd_kafka_t *rk);
 

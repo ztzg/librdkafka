@@ -374,8 +374,13 @@ struct rd_kafka_s {
                 rd_kafkap_str_t *transactional_id; /**< transactional.id */
                 rd_kafka_txn_state_t txn_state; /**< Transactional state */
                 rd_ts_t ts_txn_state;           /**< Last state change */
-                rd_kafka_broker_t *txn_coord;   /**< Current transaction
-                                                 *   coordinator, or NULL. */
+                rd_kafka_broker_t *txn_coord;   /**< Transaction coordinator,
+                                                 *   this is a logical broker.*/
+                rd_kafka_broker_t *txn_curr_coord; /**< Current actual coord
+                                                    *   broker.
+                                                    *   This is only used to
+                                                    *   check if the coord
+                                                    *   changes. */
                 rd_kafka_broker_monitor_t txn_coord_mon; /**< Monitor for
                                                           *   coordinator to
                                                           *   take action when

@@ -435,6 +435,8 @@ static void do_test_txn_switch_coordinator (void) {
         const int iterations = 20;
         int i;
 
+        test_timeout_set(iterations * 10);
+
         TEST_SAY(_C_MAG "[ Test switching coordinators ]\n");
 
         rk = create_txn_producer(&mcluster, transactional_id, broker_cnt);
@@ -507,10 +509,10 @@ int main_0105_transactions_mock (int argc, char **argv) {
         /* Bring down partition leader */
         do_test_txn_broker_down_in_txn(rd_false);
 
-        /* Switch coordinator */
-        // FIXME: currently fails
-        if (0)
+        if (!test_quick) {
+                /* Switch coordinator */
                 do_test_txn_switch_coordinator();
+        }
 
         return 0;
 }

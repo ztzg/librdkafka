@@ -81,7 +81,8 @@ void rd_kafka_idemp_inflight_toppar_sub (rd_kafka_t *rk,
                                          rd_kafka_toppar_t *rktp);
 void rd_kafka_idemp_inflight_toppar_add (rd_kafka_t *rk,
                                          rd_kafka_toppar_t *rktp);
-
+void rd_kafka_idemp_coord_monitor_cb (rd_kafka_broker_t *rkb);
+void rd_kafka_idemp_coord_query (rd_kafka_t *rk);
 
 /**
  * @brief Call when a fatal idempotence error has occurred, when the producer

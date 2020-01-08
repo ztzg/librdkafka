@@ -156,15 +156,12 @@ static rd_kafka_broker_t *rd_kafka_idemp_broker_any (rd_kafka_t *rk) {
  * @locality rdkafka main thread
  * @locks none
  */
-static void rd_kafka_idemp_coord_monitor_cb (rd_kafka_broker_t *rkb) {
+void rd_kafka_idemp_coord_monitor_cb (rd_kafka_broker_t *rkb) {
         rd_kafka_t *rk = rkb->rkb_rk;
         rd_kafka_broker_state_t state = rd_kafka_broker_get_state(rkb);
         rd_bool_t is_up;
 
-        if (rk->rk_eos.txn_coord != rkb) {
-                /* Outdated, the coordinator changed, ignore. */
-                return;
-        }
+        rd_assert(rk->rk_eos.txn_coord == rkb);
 
         is_up = rd_kafka_broker_state_is_up(state);
         rd_rkb_dbg(rkb, EOS, "COORD",
@@ -174,7 +171,7 @@ static void rd_kafka_idemp_coord_monitor_cb (rd_kafka_broker_t *rkb) {
         if (!is_up) {
                 /* Broker is down.
                  * Start query timer, if not already started. */
-                // FIXME
+                // FIXME Do we really need one?
 
                 rd_kafka_wrlock(rk);
                 /* Don't change the state if we already have a pid assigned,
@@ -201,7 +198,6 @@ static void rd_kafka_idemp_coord_monitor_cb (rd_kafka_broker_t *rkb) {
                 } else if (rk->rk_eos.idemp_state ==
                            RD_KAFKA_IDEMP_STATE_ASSIGNED &&
                            rd_kafka_is_transactional(rk)) {
-                        // FIXME: generalize
                         rd_kafka_txn_schedule_register_partitions(rk,
                                                                   1/*ASAP*/);
                 }
@@ -222,17 +218,6 @@ static void rd_kafka_idemp_coord_set (rd_kafka_t *rk, int32_t nodeid,
 
         rd_kafka_wrlock(rk);
 
-        if (err != RD_KAFKA_RESP_ERR__DESTROY &&
-            rk->rk_eos.idemp_state != RD_KAFKA_IDEMP_STATE_QUERY_COORD) {
-                rd_kafka_dbg(rk, EOS, "TXNCOORD",
-                             "Ignoring coordinator query result in wrong "
-                             "state %s: nodeid %"PRId32", %s",
-                             rd_kafka_idemp_state2str(rk->rk_eos.idemp_state),
-                             nodeid, rd_kafka_err2str(err));
-                rd_kafka_wrunlock(rk);
-                return;
-        }
-
         if (!err) {
                 if (nodeid == -1)
                         err = RD_KAFKA_RESP_ERR_COORDINATOR_NOT_AVAILABLE;
@@ -246,43 +231,26 @@ static void rd_kafka_idemp_coord_set (rd_kafka_t *rk, int32_t nodeid,
                              "(nodeid %"PRId32"): %s",
                              nodeid, rd_kafka_err2str(err));
 
-        if (rk->rk_eos.txn_coord != rkb) {
-                rd_kafka_dbg(rk, EOS, "TXNCOORD",
-                             "Transaction coordinator changed from %s -> %s",
-                             rk->rk_eos.txn_coord ?
-                             rd_kafka_broker_name(rk->rk_eos.txn_coord) :
-                             "(none)",
-                             rkb ? rd_kafka_broker_name(rkb) : "(none)");
+        /* Update transaction coordinator for transaction manager */
+        if (err)
+                rd_kafka_txn_coord_set(rk, rkb, "Coordinator query failed: %s",
+                                       rd_kafka_err2str(err));
+        else
+                rd_kafka_txn_coord_set(rk, rkb,
+                                       "Update from coordinator query");
 
-                if (rk->rk_eos.txn_coord) {
-                        rd_kafka_broker_persistent_connection_del(
-                                rk->rk_eos.txn_coord,
-                                &rk->rk_eos.txn_coord->rkb_persistconn.coord);
-
-                        rd_kafka_broker_monitor_del(&rk->rk_eos.txn_coord_mon);
-                        rd_kafka_broker_destroy(rk->rk_eos.txn_coord);
-                }
-
-                rk->rk_eos.txn_coord = rkb;
-
-                if (rk->rk_eos.txn_coord) {
-                        rd_kafka_broker_monitor_add(
-                                &rk->rk_eos.txn_coord_mon,
-                                rk->rk_eos.txn_coord,
-                                rk->rk_ops,
-                                rd_kafka_idemp_coord_monitor_cb);
-
-                        rd_kafka_broker_persistent_connection_add(
-                                rk->rk_eos.txn_coord,
-                                &rk->rk_eos.txn_coord->rkb_persistconn.coord);
-                }
-        }
         rd_kafka_wrunlock(rk);
 
-        // FIXME
+        if (rkb)
+                rd_kafka_broker_destroy(rkb); /* reference from find..() */
+
+        /* If the current PID is still valid, don't acquire a new one. */
+        if (rk->rk_eos.idemp_state == RD_KAFKA_IDEMP_STATE_ASSIGNED)
+                return;
+
         /* Transition back to request pid state if the coordinator
          * is not or no longer known. */
-        if (!rk->rk_eos.txn_coord)
+        if (!rk->rk_eos.txn_curr_coord)
                 rd_kafka_idemp_start(rk, rd_false);
         else
                 rd_kafka_idemp_start(rk, rd_true);
@@ -364,8 +332,8 @@ rd_kafka_idemp_handle_FindCoordinator (rd_kafka_t *rk,
                 RD_KAFKA_ERR_ACTION_END);
 
         if (actions & RD_KAFKA_ERR_ACTION_FATAL) {
-                /* FIXME: move this to txnmgr */
-                rd_kafka_set_fatal_error(
+                /* FIXME: move this to txnmgr? */
+                rd_kafka_txn_set_fatal_error(
                         rkb->rkb_rk, err,
                         "Failed to find transaction coordinator: %s: %s%s%s",
                         rd_kafka_broker_name(rkb),
@@ -391,7 +359,7 @@ rd_kafka_idemp_handle_FindCoordinator (rd_kafka_t *rk,
  * @locks rd_kafka_wrlock() MUST be held
  */
 static rd_kafka_resp_err_t
-rd_kafka_idemp_coord_query (rd_kafka_t *rk, rd_kafka_broker_t *rkb) {
+rd_kafka_idemp_coord_query0 (rd_kafka_t *rk, rd_kafka_broker_t *rkb) {
         rd_kafka_resp_err_t err;
 
         err = rd_kafka_FindCoordinatorRequest(
@@ -399,13 +367,29 @@ rd_kafka_idemp_coord_query (rd_kafka_t *rk, rd_kafka_broker_t *rkb) {
                 rk->rk_conf.eos.transactional_id,
                 RD_KAFKA_REPLYQ(rk->rk_ops, 0),
                 rd_kafka_idemp_handle_FindCoordinator, NULL);
-        if (!err)
+        if (!err && rk->rk_eos.idemp_state != RD_KAFKA_IDEMP_STATE_ASSIGNED)
                 rd_kafka_idemp_set_state(rk, RD_KAFKA_IDEMP_STATE_QUERY_COORD);
 
         return err;
 }
 
 
+/**
+ * @brief Query for transaction coordinator
+ *
+ * @locks rd_kafka_wrlock() MUST be held
+ */
+void rd_kafka_idemp_coord_query (rd_kafka_t *rk) {
+        rd_kafka_broker_t *rkb;
+
+        rkb = rd_kafka_idemp_broker_any(rk);
+        if (!rkb)
+                return;
+
+        rd_kafka_idemp_coord_query0(rk, rkb);
+
+        rd_kafka_broker_destroy(rkb);
+}
 
 
 /**
@@ -448,7 +432,7 @@ int rd_kafka_idemp_request_pid (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
                      rd_kafka_idemp_state2str(rk->rk_eos.idemp_state),
                      reason);
 
-        if (rd_kafka_is_transactional(rk) && rk->rk_eos.txn_coord) {
+        if (rd_kafka_is_transactional(rk) && rk->rk_eos.txn_curr_coord) {
                 if (!rd_kafka_broker_is_up(rk->rk_eos.txn_coord)) {
                         /* Coordinator connection is not up (yet),
                          * wait for broker monitor to call us again
@@ -488,14 +472,8 @@ int rd_kafka_idemp_request_pid (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
 
                 rd_kafka_wrunlock(rk);
 
-                rd_kafka_dbg(rk, EOS, "IDEMP",
-                             "rkb is %s, txn_coord is %s",
-                             rd_kafka_broker_name(rkb),
-                             rk->rk_eos.txn_coord ?
-                             rd_kafka_broker_name(rk->rk_eos.txn_coord) : "n/a");
-
                 /* FIXME: handle error */
-                err = rd_kafka_idemp_coord_query(rk, rkb);
+                err = rd_kafka_idemp_coord_query0(rk, rkb);
 
                 rd_kafka_broker_destroy(rkb);
                 return 0;
@@ -510,7 +488,6 @@ int rd_kafka_idemp_request_pid (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
                 rk->rk_conf.eos.transactional_id,
                 rd_kafka_is_transactional(rk) ?
                 rk->rk_conf.eos.transaction_timeout_ms : -1,
-                /* FIXME: conditionalize */
                 rd_kafka_pid_valid(rk->rk_eos.pid) ?
                 &rk->rk_eos.pid : NULL,
                 errstr, sizeof(errstr),
@@ -594,7 +571,7 @@ void rd_kafka_idemp_request_pid_failed (rd_kafka_broker_t *rkb,
         case RD_KAFKA_RESP_ERR__UNSUPPORTED_FEATURE:
                 /* Fatal errors */
                 /* FIXME Move this to txnmgr */
-                rd_kafka_set_fatal_error(
+                rd_kafka_txn_set_fatal_error(
                         rkb->rkb_rk, err,
                         "Failed to acquire PID from broker %s: %s",
                         rd_kafka_broker_name(rkb), rd_kafka_err2str(err));
