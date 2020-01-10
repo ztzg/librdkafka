@@ -251,9 +251,7 @@ void rd_kafka_txn_set_fatal_error (rd_kafka_t *rk,
                 /* If application has called init_transactions() and
                  * it has now failed, reply to the app. */
                 rd_kafka_txn_curr_api_reply(
-                        rk->rk_eos.txn_init_rkq,
-                        RD_KAFKA_RESP_ERR__FATAL,
-                        "Fatal error raised while retrieving PID");
+                        rk->rk_eos.txn_init_rkq, err, "%s", errstr);
                 rk->rk_eos.txn_init_rkq = NULL;
         }
 
@@ -972,11 +970,8 @@ rd_kafka_txn_curr_api_req (rd_kafka_t *rk, const char *name,
                     sizeof(rk->rk_eos.txn_curr_api.name),
                     "%s", name);
 
-        if (rko) {
+        if (rko)
                 tmpq = rd_kafka_q_new(rk);
-
-                rko->rko_replyq = RD_KAFKA_REPLYQ(tmpq, 0);
-        }
 
         rk->rk_eos.txn_curr_api.flags |= flags;
 
@@ -1079,13 +1074,13 @@ rd_kafka_txn_op_init_transactions (rd_kafka_t *rk,
         /* Start idempotent producer to acquire PID */
         rd_kafka_idemp_start(rk, rd_true/*immediately*/);
 
-        return RD_KAFKA_OP_RES_KEEP; /* input rko is used for reply */
+        return RD_KAFKA_OP_RES_HANDLED;
 
  done:
         rd_kafka_txn_curr_api_reply(rd_kafka_q_keep(rko->rko_replyq.q),
                                     err, errstr);
 
-        return RD_KAFKA_OP_RES_KEEP; /* input rko was used for reply */
+        return RD_KAFKA_OP_RES_HANDLED;
 }
 
 

@@ -42,7 +42,8 @@
  * Unrecoverable idempotent producer errors that could jeopardize the
  * idempotency guarantees if the producer was to continue operating
  * are treated as fatal errors, unless the producer is transactional in which
- * case the current transaction will fail (also known as an abortable error).
+ * case the current transaction will fail (also known as an abortable error)
+ * but the producer will not raise a fatal error.
  *
  */
 
@@ -101,9 +102,12 @@ void rd_kafka_idemp_set_state (rd_kafka_t *rk,
  *
  * @returns a broker with increased refcount, or NULL on error.
  */
-static rd_kafka_broker_t *rd_kafka_idemp_broker_any (rd_kafka_t *rk) {
+static rd_kafka_broker_t *
+rd_kafka_idemp_broker_any (rd_kafka_t *rk,
+                           rd_kafka_resp_err_t *errp,
+                           char *errstr, size_t errstr_size) {
         rd_kafka_broker_t *rkb;
-        int up_cnt, all_cnt, err_unsupported;
+        int all_cnt, up_cnt;
 
         rkb = rd_kafka_broker_any(rk, RD_KAFKA_BROKER_STATE_UP,
                                   rd_kafka_broker_filter_non_idempotent,
@@ -111,39 +115,28 @@ static rd_kafka_broker_t *rd_kafka_idemp_broker_any (rd_kafka_t *rk) {
         if (rkb)
                 return rkb;
 
-        up_cnt = rd_atomic32_get(&rk->rk_broker_up_cnt);
         all_cnt = rd_atomic32_get(&rk->rk_broker_cnt);
-        err_unsupported = up_cnt > 0 &&
-                rd_interval(&rk->rk_suppress.no_idemp_brokers,
-                            5*60*1000000/*5 minutes*/, 0) > 0;
+        up_cnt = rd_atomic32_get(&rk->rk_broker_up_cnt);
 
-        if (err_unsupported) {
-                rd_kafka_log(
-                        rk, LOG_ERR, "IDEMPOTENCE",
-                        "Idempotent Producer not supported by "
-                        "any of the %d broker(s) in state UP: "
-                        "requires broker version >= 0.11.0",
-                        up_cnt);
-                rd_kafka_op_err(
-                        rk,
-                        RD_KAFKA_RESP_ERR__UNSUPPORTED_FEATURE,
-                        "Idempotent Producer not supported by "
-                        "any of the %d broker(s) in state UP: "
-                        "requires broker version >= 0.11.0",
-                        up_cnt);
-        } else if (up_cnt == 0)
-                rd_kafka_dbg(rk, EOS, "PIDBROKER",
-                             "No brokers available for "
-                             "acquiring Producer ID: "
-                             "no brokers are up");
-        else
-                rd_kafka_dbg(rk, EOS, "PIDBROKER",
-                             "None of the %d/%d brokers in "
-                             "state UP supports "
-                             "the Idempotent Producer: "
-                             "requires broker "
-                             "version >= 0.11.0",
-                             up_cnt, all_cnt);
+        if (up_cnt > 0) {
+                *errp = RD_KAFKA_RESP_ERR__UNSUPPORTED_FEATURE;
+                rd_snprintf(errstr, errstr_size,
+                            "%s not supported by "
+                            "any of the %d connected broker(s): requires "
+                            "Apache Kafka broker version >= 0.11.0",
+                            rd_kafka_is_transactional(rk) ?
+                            "Transactions" : "Idempotent producer",
+                            up_cnt);
+        } else {
+                *errp = RD_KAFKA_RESP_ERR__TRANSPORT;
+                rd_snprintf(errstr, errstr_size,
+                            "No brokers available for "
+                            "acquiring Producer ID: "
+                            "%d/%d brokers are up",
+                            up_cnt, all_cnt);
+        }
+
+        rd_kafka_dbg(rk, EOS, "PIDBROKER", "%s", errstr);
 
         return NULL;
 }
@@ -169,9 +162,7 @@ void rd_kafka_idemp_coord_monitor_cb (rd_kafka_broker_t *rkb) {
                    is_up ? "up" : "down");
 
         if (!is_up) {
-                /* Broker is down.
-                 * Start query timer, if not already started. */
-                // FIXME Do we really need one?
+                /* Broker is down. */
 
                 rd_kafka_wrlock(rk);
                 /* Don't change the state if we already have a pid assigned,
@@ -332,7 +323,6 @@ rd_kafka_idemp_handle_FindCoordinator (rd_kafka_t *rk,
                 RD_KAFKA_ERR_ACTION_END);
 
         if (actions & RD_KAFKA_ERR_ACTION_FATAL) {
-                /* FIXME: move this to txnmgr? */
                 rd_kafka_txn_set_fatal_error(
                         rkb->rkb_rk, err,
                         "Failed to find transaction coordinator: %s: %s%s%s",
@@ -375,16 +365,58 @@ rd_kafka_idemp_coord_query0 (rd_kafka_t *rk, rd_kafka_broker_t *rkb) {
 
 
 /**
+ * @brief Check if an error needs special attention, possibly
+ *        raising a fatal error.
+ *
+ * @returns rd_true if a fatal error was triggered, else rd_false.
+ *
+ * @locks none
+ * @locality rdkafka main thread
+ */
+static rd_bool_t rd_kafka_idemp_check_error (rd_kafka_t *rk,
+                                             rd_kafka_resp_err_t err,
+                                             const char *errstr) {
+        rd_bool_t is_fatal = rd_false;
+
+        switch (err)
+        {
+        case RD_KAFKA_RESP_ERR__UNSUPPORTED_FEATURE:
+        case RD_KAFKA_RESP_ERR_INVALID_TRANSACTION_TIMEOUT:
+        case RD_KAFKA_RESP_ERR_TRANSACTIONAL_ID_AUTHORIZATION_FAILED:
+                if (rd_kafka_is_transactional(rk))
+                        rd_kafka_txn_set_fatal_error(rk, err, "%s", errstr);
+                else
+                        rd_kafka_set_fatal_error(rk, err, "%s", errstr);
+
+                rd_kafka_wrlock(rk);
+                rd_kafka_idemp_set_state(rk, RD_KAFKA_IDEMP_STATE_FATAL_ERROR);
+                rd_kafka_wrunlock(rk);
+
+                is_fatal = rd_true;
+                break;
+        default:
+                break;
+        }
+
+        return is_fatal;
+}
+
+
+/**
  * @brief Query for transaction coordinator
  *
  * @locks rd_kafka_wrlock() MUST be held
  */
 void rd_kafka_idemp_coord_query (rd_kafka_t *rk) {
         rd_kafka_broker_t *rkb;
+        rd_kafka_resp_err_t err;
+        char errstr[512];
 
-        rkb = rd_kafka_idemp_broker_any(rk);
-        if (!rkb)
+        rkb = rd_kafka_idemp_broker_any(rk, &err, errstr, sizeof(errstr));
+        if (!rkb) {
+                rd_kafka_idemp_check_error(rk, err, errstr);
                 return;
+        }
 
         rd_kafka_idemp_coord_query0(rk, rkb);
 
@@ -451,11 +483,14 @@ int rd_kafka_idemp_request_pid (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
 
         if (!rkb) {
                 /* Find a suitable broker to use */
-                rkb = rd_kafka_idemp_broker_any(rk);
+                rkb = rd_kafka_idemp_broker_any(rk, &err,
+                                                errstr, sizeof(errstr));
                 if (!rkb) {
                         rd_kafka_wrunlock(rk);
-                        rd_kafka_idemp_restart_request_pid_tmr(
-                                rk, rd_false);
+
+                        if (!rd_kafka_idemp_check_error(rk, err, errstr))
+                                rd_kafka_idemp_restart_request_pid_tmr(
+                                        rk, rd_false);
                         return 0;
                 }
         } else {
@@ -506,7 +541,9 @@ int rd_kafka_idemp_request_pid (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
 
         rd_rkb_dbg(rkb, EOS, "GETPID",
                    "Can't acquire ProducerId from this broker: %s", errstr);
-        rd_kafka_idemp_restart_request_pid_tmr(rk, rd_false);
+
+        if (!rd_kafka_idemp_check_error(rk, err, errstr))
+                rd_kafka_idemp_restart_request_pid_tmr(rk, rd_false);
 
         rd_kafka_broker_destroy(rkb);
 
@@ -553,6 +590,7 @@ static void rd_kafka_idemp_restart_request_pid_tmr (rd_kafka_t *rk,
 void rd_kafka_idemp_request_pid_failed (rd_kafka_broker_t *rkb,
                                         rd_kafka_resp_err_t err) {
         rd_kafka_t *rk = rkb->rkb_rk;
+        char errstr[512];
 
         rd_rkb_dbg(rkb, EOS, "GETPID",
                    "Failed to acquire PID: %s", rd_kafka_err2str(err));
@@ -562,35 +600,18 @@ void rd_kafka_idemp_request_pid_failed (rd_kafka_broker_t *rkb,
 
         rd_assert(thrd_is_current(rk->rk_thread));
 
-        /* Handle special errors, maybe raise certain errors
-         * to the application (such as UNSUPPORTED_FEATURE) */
+        rd_snprintf(errstr, sizeof(errstr),
+                    "Failed to acquire PID from broker %s: %s",
+                    rd_kafka_broker_name(rkb), rd_kafka_err2str(err));
 
-        switch (err)
-        {
-        case RD_KAFKA_RESP_ERR_INVALID_TRANSACTION_TIMEOUT:
-        case RD_KAFKA_RESP_ERR__UNSUPPORTED_FEATURE:
-                /* Fatal errors */
-                /* FIXME Move this to txnmgr */
-                rd_kafka_txn_set_fatal_error(
-                        rkb->rkb_rk, err,
-                        "Failed to acquire PID from broker %s: %s",
-                        rd_kafka_broker_name(rkb), rd_kafka_err2str(err));
-
+        if (!rd_kafka_idemp_check_error(rk, err, errstr)) {
+                /* Retry request after a short wait. */
                 rd_kafka_wrlock(rk);
-                rd_kafka_idemp_set_state(rk, RD_KAFKA_IDEMP_STATE_FATAL_ERROR);
+                rd_kafka_idemp_set_state(rk, RD_KAFKA_IDEMP_STATE_REQ_PID);
                 rd_kafka_wrunlock(rk);
-                return;
 
-        default:
-                break;
+                rd_kafka_idemp_restart_request_pid_tmr(rk, rd_false);
         }
-
-        /* Retry request after a short wait. */
-        rd_kafka_wrlock(rk);
-        rd_kafka_idemp_set_state(rk, RD_KAFKA_IDEMP_STATE_REQ_PID);
-        rd_kafka_wrunlock(rk);
-
-        rd_kafka_idemp_restart_request_pid_tmr(rk, rd_false);
 
         RD_UT_COVERAGE(0);
 }

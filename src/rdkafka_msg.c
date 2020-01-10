@@ -54,12 +54,10 @@
  */
 static RD_INLINE RD_UNUSED rd_kafka_resp_err_t
 rd_kafka_check_produce (rd_kafka_t *rk) {
-        rd_kafka_resp_err_t err;
 
-        if (unlikely((err = rd_kafka_fatal_error_code(rk)))) {
-                rd_kafka_set_last_error(err, ECANCELED);
-                rd_kafka_dbg(rk, EOS, "CHKPROD", "can't produce: fatal");
-                return err;
+        if (unlikely(rd_kafka_fatal_error_code(rk))) {
+                rd_kafka_set_last_error(RD_KAFKA_RESP_ERR__FATAL, ECANCELED);
+                return RD_KAFKA_RESP_ERR__FATAL;
         }
 
         if (rd_kafka_txn_may_enq_msg(rk))

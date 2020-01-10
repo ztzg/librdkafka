@@ -107,6 +107,7 @@ static RD_INLINE int
 rd_kafka_broker_needs_connection (rd_kafka_broker_t *rkb) {
         return rkb->rkb_state == RD_KAFKA_BROKER_STATE_INIT &&
                 !rd_kafka_terminating(rkb->rkb_rk) &&
+                !rd_kafka_fatal_error_code(rkb->rkb_rk) &&
                 (!rkb->rkb_rk->rk_conf.sparse_connections ||
                  rkb->rkb_persistconn.internal ||
                  rd_atomic32_get(&rkb->rkb_persistconn.coord));
@@ -3356,12 +3357,6 @@ static int rd_kafka_toppar_producer_serve (rd_kafka_broker_t *rkb,
                                                   msg_order_cmp);
         }
 
-        if (0)
-        rd_rkb_dbg(rkb, EOS, "PRODUCE",
-                   "may_send %d, max_req %d, pid valid %d, flags 0x%x",
-                   may_send, max_requests,
-                   rd_kafka_pid_valid(rktp->rktp_eos.pid),
-                   rktp->rktp_flags);
         rd_kafka_toppar_unlock(rktp);
 
 

@@ -1,26 +1,26 @@
 /*
  * librdkafka - Apache Kafka C library
  *
- * Copyright (c) 2012-2018 Magnus Edenhill
+ * Copyright (c) 2012-2020 Magnus Edenhill
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met: 
- * 
+ * modification, are permitted provided that the following conditions are met:
+ *
  * 1. Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer. 
+ *    this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
  *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution. 
- * 
+ *    and/or other materials provided with the distribution.
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE 
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE 
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR 
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF 
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN 
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
@@ -371,7 +371,7 @@ typedef enum {
         RD_KAFKA_RESP_ERR__FENCED = -144,
         /** Application generated error */
         RD_KAFKA_RESP_ERR__APPLICATION = -143,
-        
+
 	/** End internal error codes */
 	RD_KAFKA_RESP_ERR__END = -100,
 
@@ -1575,7 +1575,7 @@ void rd_kafka_conf_set_dr_cb(rd_kafka_conf_t *conf,
  * The delivery report callback will be called once for each message
  * accepted by rd_kafka_produce() (et.al) with \p err set to indicate
  * the result of the produce request.
- * 
+ *
  * The callback is called when a message is succesfully produced or
  * if librdkafka encountered a permanent failure.
  * Delivery errors occur when the retry count is exceeded, when the
@@ -3702,6 +3702,10 @@ rd_kafka_position (rd_kafka_t *rk,
  *         from this function. on_acknowledgement() will only be called if the
  *         message fails partitioning.
  *
+ * @remark If the producer is transactional (\c transactional.id is configured)
+ *         producing is only allowed during an on-going transaction, namely
+ *         after rd_kafka_begin_transaction() has been called.
+ *
  * @returns 0 on success or -1 on error in which case errno is set accordingly:
  *  - ENOBUFS  - maximum number of outstanding messages has been reached:
  *               "queue.buffering.max.messages"
@@ -3714,7 +3718,8 @@ rd_kafka_position (rd_kafka_t *rk,
  *  - ENOENT   - topic is unknown in the Kafka cluster.
  *               (RD_KAFKA_RESP_ERR__UNKNOWN_TOPIC)
  *  - ECANCELED - fatal error has been raised on producer, see
- *                rd_kafka_fatal_error().
+ *                rd_kafka_fatal_error(),
+ *               (RD_KAFKA_RESP_ERR__FATAL).
  *  - ENOEXEC  - transactional state forbids producing
  *               (RD_KAFKA_RESP_ERR__STATE)
  *
@@ -3734,7 +3739,8 @@ int rd_kafka_produce(rd_kafka_topic_t *rkt, int32_t partition,
  * The message is defined by a va-arg list using \c rd_kafka_vtype_t
  * tag tuples which must be terminated with a single \c RD_KAFKA_V_END.
  *
- * @returns \c RD_KAFKA_RESP_ERR_NO_ERROR on success, else an error code.
+ * @returns \c RD_KAFKA_RESP_ERR_NO_ERROR on success, else an error code as
+ *          described in rd_kafka_produce().
  *          \c RD_KAFKA_RESP_ERR__CONFLICT is returned if _V_HEADER and
  *          _V_HEADERS are mixed.
  *
@@ -3759,7 +3765,8 @@ rd_kafka_resp_err_t rd_kafka_producev (rd_kafka_t *rk, ...);
  *  - payload,len    Message payload and length
  *  - key,key_len    Optional message key
  *  - _private       Message opaque pointer (msg_opaque)
- *  - err            Will be set according to success or failure.
+ *  - err            Will be set according to success or failure, see
+ *                   rd_kafka_produce() for possible error codes.
  *                   Application only needs to check for errors if
  *                   return value != \p message_cnt.
  *
@@ -6253,15 +6260,15 @@ rd_kafka_oauthbearer_set_token_failure (rd_kafka_t *rk, const char *errstr);
  * @name Transactional producer API
  *
  * The transactional producer operates on top of the idempotent producer,
- * and provides full exactly-once semantics (EOS) for Kafka when used with
- * the transaction aware consumer (\c isolation.level=read_committed).
+ * and provides full exactly-once semantics (EOS) for Apache Kafka when used
+ * with the transaction aware consumer (\c isolation.level=read_committed).
  *
  * A producer instance is configured for transactions by setting the
  * \c transactional.id to an identifier unique for the application. This
  * id will be used to fence stale transactions from previous instances of
  * the application, typically following an outage or crash.
  *
- * After creating the transactional produce instance using rd_kafka_new()
+ * After creating the transactional producer instance using rd_kafka_new()
  * the transactional state must be initialized by calling
  * rd_kafka_init_transactions(). This is a blocking call that will
  * acquire a runtime producer id from the transaction coordinator broker
@@ -6270,19 +6277,20 @@ rd_kafka_oauthbearer_set_token_failure (rd_kafka_t *rk, const char *errstr);
  *
  * Once transactions are initialized the application may begin a new
  * transaction by calling rd_kafka_begin_transaction().
- * A prodoucer instance may only have one single ongoing transaction.
+ * A producer instance may only have one single on-going transaction.
  *
  * Any messages produced after the transaction has been started will
  * belong to the ongoing transaction and will be committed or aborted
- * atomatically.
+ * atomically.
  * It is not permitted to produce messages outside a transaction
  * boundary, e.g., before rd_kafka_begin_transaction() or after
- * rd_kafka_commit_transaction() or rd_kafka_abort_transaction().
+ * rd_kafka_commit_transaction(), rd_kafka_abort_transaction(), or after
+ * the current transaction has failed.
  *
  * If consumed messages are used as input to the transaction, the consumer
  * instance must be configured with \c enable.auto.commit set to \c false.
  * To commit the consumed offsets along with the transaction pass the
- * list of consumed partitions and the last offset processed to
+ * list of consumed partitions and the last offset processed + 1 to
  * rd_kafka_send_offsets_to_transaction() prior to committing the transaction.
  * This allows an aborted transaction to be restarted using the previously
  * committed offsets.
@@ -6300,30 +6308,30 @@ rd_kafka_oauthbearer_set_token_failure (rd_kafka_t *rk, const char *errstr);
  * After the current transaction has been committed or aborted a new
  * transaction may be started by calling rd_kafka_begin_transaction() again.
  *
- * \par Abortable errors
+ * @par Abortable errors
  * An ongoing transaction may fail permanently due to various errors,
  * such as transaction coordinator becoming unavailable, write failures to the
- * Kafka log, under-replicated partitions, etc.
- * At this point the producer application should abort the current transaction
+ * Apache Kafka log, under-replicated partitions, etc.
+ * At this point the producer application must abort the current transaction
  * using rd_kafka_abort_transaction() and optionally start a new transaction
  * by calling rd_kafka_begin_transaction().
  *
- * \par Fatal errors
+ * @par Fatal errors
  * While the underlying idempotent producer will typically only raise
  * fatal errors for unrecoverable cluster errors where the idempotency
- * guarantees can't be maintained, most of these are treated as abortable by 
+ * guarantees can't be maintained, most of these are treated as abortable by
  * the transactional producer since transactions may be aborted and retried
  * in their entirety;
- * The transactional producer on the other hand introduces a set of new
- * fatal errors which the application should take care to handle:
+ * The transactional producer on the other hand introduces a set of additional
+ * fatal errors which the application needs to handle by shutting down the
+ * producer and terminate. There is no way for a producer instance to recover
+ * from fatal errors.
  *
- *  * RD_KAFKA_RESP_ERR__FENCED - a newer instance of the producer with the
- *    same \c transactional.id has been started and the current instance 
- *    should terminate.
- *
- * These fatal errors are raised by trigger the \c error_cb (see the
- * Fatal error chapter in INTRODUCTION.md for more information) , and any
- * sub-sequent transactional API calls will return FIXME (what error??).
+ * Fatal errors are raised by triggering the \c error_cb (see the
+ * Fatal error chapter in INTRODUCTION.md for more information), and any
+ * sub-sequent transactional API calls will return RD_KAFKA_RESP_ERR__FATAL.
+ * The originating fatal error code can be retrieved by calling
+ * rd_kafka_fatal_error().
  *
  * @{
  */
@@ -6332,13 +6340,12 @@ rd_kafka_oauthbearer_set_token_failure (rd_kafka_t *rk, const char *errstr);
 /**
  * @brief Initialize transactions for the producer instance.
  *
- * Needs to be called before any other methods when the \c transactional.id
- * is configured.
- *
  * This function ensures any transactions initiated by previous instances
  * of the producer with the same \c transactional.id are completed.
  * If the previous instance failed with a transaction in progress the
  * previous transaction will be aborted.
+ * This function needs to be called before any other transactional or
+ * produce functions are called when the \c transactional.id is configured.
  *
  * If the last transaction had begun completion (following transaction commit)
  * but not yet finished, this function will await the previous transaction's
@@ -6376,6 +6383,12 @@ rd_kafka_oauthbearer_set_token_failure (rd_kafka_t *rk, const char *errstr);
  *          would not complete within \p timeout_ms (retryable),
  *          RD_KAFKA_RESP_ERR__STATE if transactions have already been started
  *          or upon fatal error,
+ *          RD_KAFKA_RESP_ERR__UNSUPPORTED_FEATURE if the broker(s) do not
+ *          support transactions (<Apache Kafka 0.11), this also raises a
+ *          fatal error,
+ *          RD_KAFKA_RESP_ERR_INVALID_TRANSACTION_TIMEOUT if the configured
+ *          \c transaction.timeout.ms is outside the broker-configured range,
+ *          this also raises a fatal error,
  *          RD_KAFKA_RESP_ERR__NOT_CONFIGURED if transactions have not been
  *          configured for the producer instance,
  *          RD_KAFKA_RESP_ERR__INVALID_ARG if \p rk is not a producer instance,
@@ -6414,6 +6427,11 @@ rd_kafka_init_transactions (rd_kafka_t *rk, int timeout_ms,
  *          configured for the producer instance,
  *          RD_KAFKA_RESP_ERR__INVALID_ARG if \p rk is not a producer instance.
  *
+ * @remark With the transactional producer, rd_kafka_produce(),
+ *         rd_kafka_producev(), et.al, are only allowed during an on-going
+ *         transaction, as started with this function.
+ *         Any produce call outside an on-going transaction, or for a failed
+ *         transaction, will fail.
  */
 RD_EXPORT
 rd_kafka_resp_err_t rd_kafka_begin_transaction (rd_kafka_t *rk,
@@ -6497,7 +6515,7 @@ rd_kafka_send_offsets_to_transaction (
  *        committing the transaction.
  *
  *        If any of the outstanding messages fail permanently the current
- *        transactional will enter the abortable error state and this
+ *        transaction will enter the abortable error state and this
  *        function will return FIXME, in this case the application
  *        must call rd_kafka_abort_transaction() before attempting a new
  *        transaction with rd_kafka_begin_transaction().

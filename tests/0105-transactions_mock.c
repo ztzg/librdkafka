@@ -497,6 +497,65 @@ static void do_test_txn_switch_coordinator (void) {
 }
 
 
+/**
+ * @brief Test fatal error handling when transactions are not supported
+ *        by the broker.
+ */
+static void do_test_txns_not_supported (void) {
+        rd_kafka_t *rk;
+        rd_kafka_conf_t *conf;
+        rd_kafka_mock_cluster_t *mcluster;
+        rd_kafka_resp_err_t err;
+        char errstr[512];
+
+        TEST_SAY(_C_MAG "[ %s ]\n", __FUNCTION__);
+
+        test_conf_init(&conf, NULL, 10);
+
+        test_conf_set(conf, "transactional.id", "myxnid");
+        test_conf_set(conf, "bootstrap.servers", ",");
+        rd_kafka_conf_set_dr_msg_cb(conf, test_dr_msg_cb);
+
+        rk = test_create_handle(RD_KAFKA_PRODUCER, conf);
+
+        /* Create mock cluster */
+        mcluster = rd_kafka_mock_cluster_new(rk, 3);
+
+        /* Disable InitProducerId */
+        rd_kafka_mock_set_apiversion(mcluster, 22/*InitProducerId*/, -1, -1);
+
+
+        rd_kafka_brokers_add(rk, rd_kafka_mock_cluster_bootstraps(mcluster));
+
+
+
+        *errstr = '\0';
+        err = rd_kafka_init_transactions(rk, 5*1000, errstr, sizeof(errstr));
+        TEST_SAY("init_transactions() returned %s: %s\n",
+                 rd_kafka_err2name(err),
+                 err ? errstr : "");
+        TEST_ASSERT(err == RD_KAFKA_RESP_ERR__UNSUPPORTED_FEATURE,
+                    "Expected init_transactions() to fail with %s, not %s: %s",
+                    rd_kafka_err2name(RD_KAFKA_RESP_ERR__UNSUPPORTED_FEATURE),
+                    rd_kafka_err2name(err), errstr);
+
+        err = rd_kafka_producev(rk,
+                                RD_KAFKA_V_TOPIC("test"),
+                                RD_KAFKA_V_KEY("test", 4),
+                                RD_KAFKA_V_END);
+        TEST_ASSERT(err == RD_KAFKA_RESP_ERR__FATAL,
+                    "Expected producev() to fail with %s, not %s",
+                    rd_kafka_err2name(RD_KAFKA_RESP_ERR__FATAL),
+                    rd_kafka_err2name(err));
+
+        rd_kafka_mock_cluster_destroy(mcluster);
+
+        rd_kafka_destroy(rk);
+
+        TEST_SAY(_C_GRN "[ %s: PASS ]\n", __FUNCTION__);
+}
+
+
 int main_0105_transactions_mock (int argc, char **argv) {
 
         do_test_txn_recoverable_errors();
@@ -508,6 +567,8 @@ int main_0105_transactions_mock (int argc, char **argv) {
 
         /* Bring down partition leader */
         do_test_txn_broker_down_in_txn(rd_false);
+
+        do_test_txns_not_supported();
 
         if (!test_quick) {
                 /* Switch coordinator */

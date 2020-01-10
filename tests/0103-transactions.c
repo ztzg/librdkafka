@@ -458,8 +458,12 @@ static void do_test_misuse_txn (void) {
         p = test_create_handle(RD_KAFKA_PRODUCER, conf);
 
         err = rd_kafka_init_transactions(p, 10*1000, errstr, sizeof(errstr));
-        TEST_ASSERT(err == RD_KAFKA_RESP_ERR__FATAL,
-                    "Expected fatal error, not %s", rd_kafka_err2name(err));
+        TEST_ASSERT(err == RD_KAFKA_RESP_ERR_INVALID_TRANSACTION_TIMEOUT,
+                    "Expected error ERR_INVALID_TRANSACTION_TIMEOUT, "
+                    "not %s: %s",
+                    rd_kafka_err2name(err),
+                    err ? errstr : "");
+        /* Check that a fatal error is raised */
         fatal_err = rd_kafka_fatal_error(p, errstr, sizeof(errstr));
         TEST_ASSERT(fatal_err == RD_KAFKA_RESP_ERR_INVALID_TRANSACTION_TIMEOUT,
                     "Expected fatal error ERR_INVALID_TRANSACTION_TIMEOUT, "

@@ -276,7 +276,7 @@ struct rd_kafka_broker_s { /* rd_kafka_broker_t */
                  *   rdkafka main thread.
                  *
                  *   Producer: Broker is the transaction coordinator.
-                 *   Counter is maintained by rdkafka_idemp.c. */
+                 *   Counter is maintained by rdkafka_idempotence.c. */
                 rd_atomic32_t coord;
         } rkb_persistconn;
 
@@ -326,7 +326,7 @@ struct rd_kafka_broker_s { /* rd_kafka_broker_t */
 /**
  * @brief Locks broker, acquires the states, unlocks, and returns
  *        the state.
- * @locks !broker_lock
+ * @locks broker_lock MUST NOT be held.
  * @locality any
  */
 static RD_INLINE RD_UNUSED
@@ -351,7 +351,7 @@ rd_kafka_broker_state_t rd_kafka_broker_get_state (rd_kafka_broker_t *rkb) {
 
 /**
  * @returns true if the broker connection is up, else false.
- * @locks none
+ * @locks broker_lock MUST NOT be held.
  * @locality any
  */
 static RD_UNUSED RD_INLINE rd_bool_t
