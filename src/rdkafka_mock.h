@@ -244,6 +244,25 @@ rd_kafka_mock_coordinator_set (rd_kafka_mock_cluster_t *mcluster,
 
 
 
+/**
+ * @brief Set the allowed ApiVersion range for \p ApiKey.
+ *
+ *        Set \p MinVersion and \p MaxVersion to -1 to disable the API
+ *        completely.
+ *
+ *        \p MaxVersion MUST not exceed the maximum implemented value,
+ *        see rdkafka_mock_handlers.c.
+ *
+ * @param ApiKey Protocol request type/key
+ * @param MinVersion Minimum version supported (or -1 to disable).
+ * @param MinVersion Maximum version supported (or -1 to disable).
+ */
+RD_EXPORT rd_kafka_resp_err_t
+rd_kafka_mock_set_apiversion (rd_kafka_mock_cluster_t *mcluster,
+                              int16_t ApiKey,
+                              int16_t MinVersion, int16_t MaxVersion);
+
+
 /**@}*/
 
 #endif /* _RDKAFKA_MOCK_H_ */

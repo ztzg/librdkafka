@@ -181,6 +181,17 @@ typedef void (rd_kafka_mock_io_handler_t) (struct rd_kafka_mock_cluster_s
                                            rd_socket_t fd,
                                            int events, void *opaque);
 
+struct rd_kafka_mock_api_handler {
+        int16_t MinVersion;
+        int16_t MaxVersion;
+        int (*cb) (rd_kafka_mock_connection_t *mconn, rd_kafka_buf_t *rkbuf);
+};
+
+extern const struct rd_kafka_mock_api_handler
+rd_kafka_mock_api_handlers[RD_KAFKAP__NUM];
+
+
+
 /**
  * @struct Mock cluster.
  *
@@ -241,8 +252,12 @@ struct rd_kafka_mock_cluster_s {
         /**< Per-protocol request error stack. */
         rd_kafka_mock_error_stack_head_t errstacks;
 
+        /**< Request handlers */
+        struct rd_kafka_mock_api_handler api_handlers[RD_KAFKAP__NUM];
+
         /**< Mutex for:
          *   .errstacks
+         *   .apiversions
          */
         mtx_t lock;
 
@@ -250,15 +265,6 @@ struct rd_kafka_mock_cluster_s {
 };
 
 
-
-struct rd_kafka_mock_api_handler {
-        int16_t MinVersion;
-        int16_t MaxVersion;
-        int (*cb) (rd_kafka_mock_connection_t *mconn, rd_kafka_buf_t *rkbuf);
-};
-
-extern const struct rd_kafka_mock_api_handler
-rd_kafka_mock_api_handlers[RD_KAFKAP__NUM];
 
 
 

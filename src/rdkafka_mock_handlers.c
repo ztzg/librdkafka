@@ -1480,6 +1480,7 @@ rd_kafka_mock_api_handlers[RD_KAFKAP__NUM] = {
  */
 static int rd_kafka_mock_handle_ApiVersion (rd_kafka_mock_connection_t *mconn,
                                             rd_kafka_buf_t *rkbuf) {
+        rd_kafka_mock_cluster_t *mcluster = mconn->broker->cluster;
         rd_kafka_buf_t *resp = rd_kafka_mock_buf_new_response(rkbuf);
         size_t of_ApiKeysCnt;
         int cnt = 0;
@@ -1492,17 +1493,18 @@ static int rd_kafka_mock_handle_ApiVersion (rd_kafka_mock_connection_t *mconn,
         of_ApiKeysCnt = rd_kafka_buf_write_i32(resp, 0); /* updated later */
 
         for (i = 0 ; i < RD_KAFKAP__NUM ; i++) {
-                if (!rd_kafka_mock_api_handlers[i].cb)
+                if (!mcluster->api_handlers[i].cb ||
+                    mcluster->api_handlers[i].MaxVersion == -1)
                         continue;
 
                 /* ApiKey */
                 rd_kafka_buf_write_i16(resp, (int16_t)i);
                 /* MinVersion */
                 rd_kafka_buf_write_i16(
-                        resp, rd_kafka_mock_api_handlers[i].MinVersion);
+                        resp, mcluster->api_handlers[i].MinVersion);
                 /* MaxVersion */
                 rd_kafka_buf_write_i16(
-                        resp, rd_kafka_mock_api_handlers[i].MaxVersion);
+                        resp, mcluster->api_handlers[i].MaxVersion);
 
                 cnt++;
         }

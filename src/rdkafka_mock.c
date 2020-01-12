@@ -821,11 +821,12 @@ rd_kafka_buf_t *rd_kafka_mock_buf_new_response (const rd_kafka_buf_t *request) {
 static int
 rd_kafka_mock_connection_parse_request (rd_kafka_mock_connection_t *mconn,
                                         rd_kafka_buf_t *rkbuf) {
-        rd_kafka_t *rk = mconn->broker->cluster->rk;
+        rd_kafka_mock_cluster_t *mcluster = mconn->broker->cluster;
+        rd_kafka_t *rk = mcluster->rk;
 
         if (rkbuf->rkbuf_reqhdr.ApiKey < 0 ||
             rkbuf->rkbuf_reqhdr.ApiKey >= RD_KAFKAP__NUM ||
-            !rd_kafka_mock_api_handlers[rkbuf->rkbuf_reqhdr.ApiKey].cb) {
+            !mcluster->api_handlers[rkbuf->rkbuf_reqhdr.ApiKey].cb) {
                 rd_kafka_log(rk, LOG_ERR, "MOCK",
                              "Broker %"PRId32": unsupported %sRequestV%hd "
                              "from %s",
@@ -838,9 +839,9 @@ rd_kafka_mock_connection_parse_request (rd_kafka_mock_connection_t *mconn,
         }
 
         if (rkbuf->rkbuf_reqhdr.ApiVersion <
-            rd_kafka_mock_api_handlers[rkbuf->rkbuf_reqhdr.ApiKey].MinVersion ||
+            mcluster->api_handlers[rkbuf->rkbuf_reqhdr.ApiKey].MinVersion ||
             rkbuf->rkbuf_reqhdr.ApiVersion >
-            rd_kafka_mock_api_handlers[rkbuf->rkbuf_reqhdr.ApiKey].MaxVersion) {
+            mcluster->api_handlers[rkbuf->rkbuf_reqhdr.ApiKey].MaxVersion) {
                 rd_kafka_log(rk, LOG_ERR, "MOCK",
                              "Broker %"PRId32": unsupported %sRequest "
                              "version %hd from %s",
@@ -858,8 +859,8 @@ rd_kafka_mock_connection_parse_request (rd_kafka_mock_connection_t *mconn,
                      rkbuf->rkbuf_reqhdr.ApiVersion,
                      rd_sockaddr2str(&mconn->peer, RD_SOCKADDR2STR_F_PORT));
 
-        return rd_kafka_mock_api_handlers[rkbuf->rkbuf_reqhdr.ApiKey].cb(mconn,
-                                                                         rkbuf);
+        return mcluster->api_handlers[rkbuf->rkbuf_reqhdr.ApiKey].cb(mconn,
+                                                                     rkbuf);
 }
 
 
@@ -1600,6 +1601,23 @@ rd_kafka_mock_coordinator_set (rd_kafka_mock_cluster_t *mcluster,
                 rd_kafka_op_req(mcluster->ops, rko, RD_POLL_INFINITE));
 }
 
+rd_kafka_resp_err_t
+rd_kafka_mock_set_apiversion (rd_kafka_mock_cluster_t *mcluster,
+                              int16_t ApiKey,
+                              int16_t MinVersion, int16_t MaxVersion) {
+        rd_kafka_op_t *rko = rd_kafka_op_new(RD_KAFKA_OP_MOCK);
+
+        rko->rko_u.mock.partition = ApiKey;
+        rko->rko_u.mock.lo = MinVersion;
+        rko->rko_u.mock.hi = MaxVersion;
+        rko->rko_u.mock.cmd = RD_KAFKA_MOCK_CMD_APIVERSION_SET;
+
+        return rd_kafka_op_err_destroy(
+                rd_kafka_op_req(mcluster->ops, rko, RD_POLL_INFINITE));
+}
+
+
+
 
 
 
@@ -1736,6 +1754,17 @@ rd_kafka_mock_cluster_cmd (rd_kafka_mock_cluster_t *mcluster,
                         return RD_KAFKA_RESP_ERR__INVALID_ARG;
                 break;
 
+        case RD_KAFKA_MOCK_CMD_APIVERSION_SET:
+                if (rko->rko_u.mock.partition < 0 ||
+                    rko->rko_u.mock.partition >= RD_KAFKAP__NUM)
+                        return RD_KAFKA_RESP_ERR__INVALID_ARG;
+
+                mcluster->api_handlers[(int)rko->rko_u.mock.partition].
+                        MinVersion = (int16_t)rko->rko_u.mock.lo;
+                mcluster->api_handlers[(int)rko->rko_u.mock.partition].
+                        MaxVersion = (int16_t)rko->rko_u.mock.hi;
+                break;
+
         default:
                 rd_assert(!*"unknown mock cmd");
                 break;
@@ -1836,6 +1865,9 @@ void rd_kafka_mock_cluster_destroy (rd_kafka_mock_cluster_t *mcluster) {
 
         rd_kafka_dbg(mcluster->rk, MOCK, "MOCK", "Destroying cluster");
 
+        rd_assert(rd_atomic32_get(&mcluster->rk->rk_mock.cluster_cnt) > 0);
+        rd_atomic32_sub(&mcluster->rk->rk_mock.cluster_cnt, 1);
+
         rko = rd_kafka_op_req2(mcluster->ops, RD_KAFKA_OP_TERMINATE);
 
         if (rko)
@@ -1894,6 +1926,9 @@ rd_kafka_mock_cluster_t *rd_kafka_mock_cluster_new (rd_kafka_t *rk,
 
         TAILQ_INIT(&mcluster->errstacks);
 
+        memcpy(mcluster->api_handlers, rd_kafka_mock_api_handlers,
+               sizeof(mcluster->api_handlers));
+
         /* Use an op queue for controlling the cluster in
          * a thread-safe manner without locking. */
         mcluster->ops = rd_kafka_q_new(rk);
@@ -1941,6 +1976,8 @@ rd_kafka_mock_cluster_t *rd_kafka_mock_cluster_new (rd_kafka_t *rk,
 
         rd_kafka_dbg(rk, MOCK, "MOCK", "Mock cluster %s bootstrap.servers=%s",
                      mcluster->id, mcluster->bootstraps);
+
+        rd_atomic32_add(&rk->rk_mock.cluster_cnt, 1);
 
         return mcluster;
 }

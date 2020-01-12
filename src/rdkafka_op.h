@@ -436,6 +436,7 @@ struct rd_kafka_op_s {
                                 RD_KAFKA_MOCK_CMD_BROKER_SET_UPDOWN,
                                 RD_KAFKA_MOCK_CMD_BROKER_SET_RACK,
                                 RD_KAFKA_MOCK_CMD_COORD_SET,
+                                RD_KAFKA_MOCK_CMD_APIVERSION_SET,
                         } cmd;
 
                         rd_kafka_resp_err_t err; /**< Error for:
@@ -452,7 +453,9 @@ struct rd_kafka_op_s {
                         int32_t partition;       /**< For:
                                                   *    PART_SET_FOLLOWER
                                                   *    PART_SET_FOLLOWER_WMARKS
-                                                  *    PART_SET_LEADER */
+                                                  *    PART_SET_LEADER
+                                                  *    APIVERSION_SET (ApiKey)
+                                                  */
                         int32_t broker_id;       /**< For:
                                                   *    PART_SET_FOLLOWER
                                                   *    PART_SET_LEADER
@@ -463,10 +466,12 @@ struct rd_kafka_op_s {
                                                   *    TOPIC_CREATE (part cnt)
                                                   *    PART_SET_FOLLOWER_WMARKS
                                                   *    BROKER_SET_UPDOWN
+                                                  *    APIVERSION_SET (minver)
                                                   */
                         int64_t hi;              /**< High offset, for:
                                                   *    TOPIC_CREATE (repl fact)
                                                   *    PART_SET_FOLLOWER_WMARKS
+                                                  *    APIVERSION_SET (maxver)
                                                   */
                 } mock;
 
