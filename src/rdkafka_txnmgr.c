@@ -938,7 +938,7 @@ rd_kafka_txn_curr_api_req (rd_kafka_t *rk, const char *name,
         if (!strncmp(name, "rd_kafka_", strlen("rd_kafka_")))
                 name += strlen("rd_kafka_");
 
-        rd_kafka_dbg(rk, EOS, "TXNAPI", "**** %s", name);
+        rd_kafka_dbg(rk, EOS, "TXNAPI", "Transactional API called: %s", name);
 
         if (flags & RD_KAFKA_TXN_CURR_API_F_REUSE) {
                 /* Reuse the current API call state. */

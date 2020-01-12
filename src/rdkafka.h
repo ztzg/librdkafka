@@ -6523,7 +6523,7 @@ rd_kafka_send_offsets_to_transaction (
  * @param rk Producer instance.
  * @param timeout_ms The maximum time to block. On timeout the operation
  *                   may continue in the background, depending on state,
- *                   and it is okay to call this function again.
+ *                   and it is okay to call this function again. FIXME
  * @param errstr A human readable error string (nul-terminated) is written to
  *               this location that must be of at least \p errstr_size bytes.
  *               The \p errstr is only written to if there is a fatal error.

@@ -507,8 +507,14 @@ int rd_kafka_idemp_request_pid (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
 
                 rd_kafka_wrunlock(rk);
 
-                /* FIXME: handle error */
+                /* FIXME: requires rk lock */
                 err = rd_kafka_idemp_coord_query0(rk, rkb);
+
+                if (err)
+                        rd_rkb_dbg(rkb, EOS, "GETPID",
+                                   "Unable to query for transaction "
+                                   "coordinator: %s",
+                                   rd_kafka_err2str(err));
 
                 rd_kafka_broker_destroy(rkb);
                 return 0;
