@@ -162,8 +162,9 @@ void rd_kafka_coord_cache_evict (rd_kafka_coord_cache_t *cc,
         }
 }
 
-// FIXME use this ^
-
+/**
+ * @brief Destroy all coord cache entries.
+ */
 void rd_kafka_coord_cache_destroy (rd_kafka_coord_cache_t *cc) {
         rd_kafka_coord_cache_entry_t *cce;
 
@@ -172,7 +173,11 @@ void rd_kafka_coord_cache_destroy (rd_kafka_coord_cache_t *cc) {
 }
 
 
-// FIXME: locking?
+/**
+ * @brief Initialize the coord cache.
+ *
+ * Locking of the coord-cache is up to the owner.
+ */
 void rd_kafka_coord_cache_init (rd_kafka_coord_cache_t *cc,
                                 int expire_thres_ms) {
         TAILQ_INIT(&cc->cc_entries);
