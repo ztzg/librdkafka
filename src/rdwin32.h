@@ -173,14 +173,6 @@ rd_strerror_w32 (DWORD errcode, char *dst, size_t dstsize) {
 
 
 /**
- * Atomics
- */
-#ifndef __cplusplus
-#include "rdatomic.h"
-#endif
-
-
-/**
  * Misc
  */
 

@@ -31,26 +31,15 @@
 /* This header file is to be used by .c files needing access to the
  * rd_kafka_transport_t struct internals. */
 
-#include "rdkafka_sasl.h"
-
-#if WITH_SSL
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <openssl/pkcs12.h>
-#endif
-
 #ifndef _MSC_VER
 #include <sys/socket.h>
 #include <netinet/tcp.h>
 #endif
 
-struct rd_kafka_transport_s {
-        rd_socket_t rktrans_s;
-        rd_kafka_broker_t *rktrans_rkb;    /* Not reference counted */
+#include "rdkafka_broker.h"
 
-#if WITH_SSL
-	SSL *rktrans_ssl;
-#endif
+struct rd_kafka_transport_s {
+        rd_kafka_broker_t *rktrans_rkb;    /* Not reference counted */
 
 	struct {
                 void *state;               /* SASL implementation
@@ -71,20 +60,13 @@ struct rd_kafka_transport_s {
 					    * current frame. */
 	} rktrans_sasl;
 
-	rd_kafka_buf_t *rktrans_recv_buf;  /* Used with framed_recvmsg */
+        struct {
+                char *buf;
+                size_t size;
+                size_t of;
+        } rktrans_clientout;
 
-        /* Two pollable fds:
-         * - TCP socket
-         * - wake-up fd
-         */
-        rd_pollfd_t rktrans_pfd[2];
-        int rktrans_pfd_cnt;
-
-        size_t rktrans_rcvbuf_size;    /**< Socket receive buffer size */
-        size_t rktrans_sndbuf_size;    /**< Socket send buffer size */
+        int authenticated;
 };
-
-
-extern RD_TLS rd_kafka_transport_t *rd_kafka_curr_transport;
 
 #endif /* _RDKAFKA_TRANSPORT_INT_H_ */

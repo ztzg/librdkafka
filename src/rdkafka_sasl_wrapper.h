@@ -1,7 +1,8 @@
 /*
  * librdkafka - The Apache Kafka C/C++ library
  *
- * Copyright (c) 2019 Magnus Edenhill
+ * Copyright (c) 2015 Magnus Edenhill
+ * Copyright (c) 2020 Damien Diederen
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,30 +27,37 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef _RDKAFKA_SASL_WRAPPER_H_
+#define _RDKAFKA_SASL_WRAPPER_H_
 
-#ifndef _RDKAFKA_SSL_H_
-#define _RDKAFKA_SSL_H_
+#include "rdkafka.h"
 
-void rd_kafka_transport_ssl_close (rd_kafka_transport_t *rktrans);
-int rd_kafka_transport_ssl_connect (rd_kafka_broker_t *rkb,
-                                    rd_kafka_transport_t *rktrans,
-                                    char *errstr, size_t errstr_size);
-int rd_kafka_transport_ssl_handshake (rd_kafka_transport_t *rktrans);
-ssize_t rd_kafka_transport_ssl_send (rd_kafka_transport_t *rktrans,
-                                     rd_slice_t *slice,
-                                     char *errstr, size_t errstr_size);
-ssize_t rd_kafka_transport_ssl_recv (rd_kafka_transport_t *rktrans,
-                                     rd_buf_t *rbuf,
-                                     char *errstr, size_t errstr_size);
+typedef void rd_kafka_log_cb_t (const rd_kafka_t *rk, int level,
+                                const char *fac, const char *buf);
 
+RD_EXPORT
+rd_kafka_transport_t *rd_kafka_sasl_wrapper_new (const char *mechanisms,
+                                                 const char *service_name,
+                                                 rd_kafka_log_cb_t *log_cb,
+                                                 char *errstr,
+                                                 size_t errstr_size);
 
-void rd_kafka_ssl_ctx_term (rd_kafka_t *rk);
-int rd_kafka_ssl_ctx_init (rd_kafka_t *rk,
-                           char *errstr, size_t errstr_size);
+RD_EXPORT
+int rd_kafka_sasl_client_new (rd_kafka_transport_t *rktrans,
+                              const char *hostname,
+                              char *clientout, size_t *clientout_size,
+                              char *errstr, size_t errstr_size);
 
-void rd_kafka_ssl_term (void);
-void rd_kafka_ssl_init(void);
+RD_EXPORT
+int rd_kafka_sasl_step (rd_kafka_transport_t *rktrans,
+                        const void *serverin, size_t serverin_size,
+                        char *clientout, size_t *clientout_size,
+                        char *errstr, size_t errstr_size);
 
-const char *rd_kafka_ssl_last_error_str (void);
+RD_EXPORT
+void rd_kafka_sasl_close (rd_kafka_transport_t *rktrans);
 
-#endif /* _RDKAFKA_SSL_H_ */
+RD_EXPORT
+void rd_kafka_sasl_wrapper_free (rd_kafka_transport_t *rktrans);
+
+#endif /* _RDKAFKA_SASL_WRAPPER_H_ */

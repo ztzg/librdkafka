@@ -1,3 +1,23 @@
+librdkafka\_sasl\_sspi - GSSAPI SASL for Windows AD based on librdkafka
+=======================================================================
+
+This is a tiny "API" over the Windows SSPI-based GSSAPI SASL mechanism
+implemented in `librdkafka`, which happens to be useful for
+authenticating to ZooKeeper using Windows Active Domain credentials.
+
+The core of that implementation lies in in `src/rdkafka_sasl_win32.c`,
+which is kept as close as possible to upstream to facilitate later
+merges.
+
+The "API" is provided by `rdkafka_sasl_wrapper.h`; it consists in five
+DLL-exported functions.
+
+The rest of `librdkafka` has been almost entierely stripped down.
+
+Original `README.md` contents follow:
+
+----
+
 librdkafka - the Apache Kafka C/C++ client library
 ==================================================
 

@@ -29,49 +29,6 @@
 #ifndef _RDKAFKA_TRANSPORT_H_
 #define _RDKAFKA_TRANSPORT_H_
 
-#ifndef _MSC_VER
-#include <poll.h>
-#endif
-
-#include "rdbuf.h"
-#include "rdaddr.h"
-
 typedef struct rd_kafka_transport_s rd_kafka_transport_t;
-
-int rd_kafka_transport_io_serve (rd_kafka_transport_t *rktrans,
-                                 int timeout_ms);
-
-ssize_t rd_kafka_transport_send (rd_kafka_transport_t *rktrans,
-                                 rd_slice_t *slice,
-                                 char *errstr, size_t errstr_size);
-ssize_t rd_kafka_transport_recv (rd_kafka_transport_t *rktrans,
-                                 rd_buf_t *rbuf,
-                                 char *errstr, size_t errstr_size);
-
-void rd_kafka_transport_request_sent (rd_kafka_broker_t *rkb,
-                                      rd_kafka_buf_t *rkbuf);
-
-int rd_kafka_transport_framed_recv (rd_kafka_transport_t *rktrans,
-                                    rd_kafka_buf_t **rkbufp,
-                                    char *errstr, size_t errstr_size);
-
-rd_kafka_transport_t *rd_kafka_transport_new (rd_kafka_broker_t *rkb,
-                                              rd_socket_t s,
-                                              char *errstr,
-                                              size_t errstr_size);
-struct rd_kafka_broker_s;
-rd_kafka_transport_t *rd_kafka_transport_connect(struct rd_kafka_broker_s *rkb, const rd_sockaddr_inx_t *sinx,
-                                                 char *errstr, size_t errstr_size);
-void rd_kafka_transport_connect_done (rd_kafka_transport_t *rktrans,
-				      char *errstr);
-
-void rd_kafka_transport_post_connect_setup (rd_kafka_transport_t *rktrans);
-
-void rd_kafka_transport_close(rd_kafka_transport_t *rktrans);
-void rd_kafka_transport_poll_set(rd_kafka_transport_t *rktrans, int event);
-void rd_kafka_transport_poll_clear(rd_kafka_transport_t *rktrans, int event);
-int rd_kafka_transport_poll(rd_kafka_transport_t *rktrans, int tmout);
-
-void rd_kafka_transport_init (void);
 
 #endif /* _RDKAFKA_TRANSPORT_H_ */

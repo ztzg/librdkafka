@@ -34,7 +34,6 @@
 #include "rdkafka_int.h"
 #include "rdkafka_transport.h"
 #include "rdkafka_transport_int.h"
-#include "rdkafka_sasl.h"
 #include "rdkafka_sasl_int.h"
 
 

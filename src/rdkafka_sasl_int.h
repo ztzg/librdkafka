@@ -61,22 +61,6 @@ struct rd_kafka_sasl_provider {
 extern const struct rd_kafka_sasl_provider rd_kafka_sasl_win32_provider;
 #endif
 
-#if WITH_SASL_CYRUS
-extern const struct rd_kafka_sasl_provider rd_kafka_sasl_cyrus_provider;
-void rd_kafka_sasl_cyrus_global_term (void);
-int rd_kafka_sasl_cyrus_global_init (void);
-#endif
-
-extern const struct rd_kafka_sasl_provider rd_kafka_sasl_plain_provider;
-
-#if WITH_SASL_SCRAM
-extern const struct rd_kafka_sasl_provider rd_kafka_sasl_scram_provider;
-#endif
-
-#if WITH_SASL_OAUTHBEARER
-extern const struct rd_kafka_sasl_provider rd_kafka_sasl_oauthbearer_provider;
-#endif
-
 void rd_kafka_sasl_auth_done (rd_kafka_transport_t *rktrans);
 int rd_kafka_sasl_send (rd_kafka_transport_t *rktrans,
                         const void *payload, int len,
