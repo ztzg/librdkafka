@@ -121,10 +121,9 @@ typedef enum {
         RD_KAFKA_IDEMP_STATE_INIT,      /**< Initial state */
         RD_KAFKA_IDEMP_STATE_TERM,      /**< Instance is terminating */
         RD_KAFKA_IDEMP_STATE_FATAL_ERROR, /**< A fatal error has been raised */
-        RD_KAFKA_IDEMP_STATE_QUERY_COORD, /**< Query Transaction coordinator */
+        RD_KAFKA_IDEMP_STATE_REQ_PID,   /**< Request new PID */
         RD_KAFKA_IDEMP_STATE_WAIT_TRANSPORT, /**< Waiting for coordinator to
                                               *   become available. */
-        RD_KAFKA_IDEMP_STATE_REQ_PID,   /**< Request new PID */
         RD_KAFKA_IDEMP_STATE_WAIT_PID,  /**< PID requested, waiting for reply */
         RD_KAFKA_IDEMP_STATE_ASSIGNED,  /**< New PID assigned */
         RD_KAFKA_IDEMP_STATE_DRAIN_RESET, /**< Wait for outstanding
@@ -146,9 +145,8 @@ rd_kafka_idemp_state2str (rd_kafka_idemp_state_t state) {
                 "Init",
                 "Terminate",
                 "FatalError",
-                "QueryCoord",
-                "WaitTransport",
                 "RequestPID",
+                "WaitTransport",
                 "WaitPID",
                 "Assigned",
                 "DrainReset",
@@ -360,7 +358,7 @@ struct rd_kafka_s {
                 rd_atomic32_t inflight_toppar_cnt; /**< Current number of
                                                     *   toppars with inflight
                                                     *   requests. */
-                rd_kafka_timer_t request_pid_tmr; /**< Timer for pid retrieval*/
+                rd_kafka_timer_t pid_tmr; /**< PID FSM timer */
 
                 /*
                  * Transactions
@@ -468,6 +466,12 @@ struct rd_kafka_s {
 
                 /**< Current transaction error string, if any. */
                 char               *txn_errstr;
+
+                /**< Waiting for transaction coordinator query response */
+                rd_bool_t           txn_wait_coord;
+
+                /**< Transaction coordinator query timer */
+                rd_kafka_timer_t    txn_coord_tmr;
         } rk_eos;
 
         rd_kafka_coord_cache_t   rk_coord_cache; /**< Coordinator cache */

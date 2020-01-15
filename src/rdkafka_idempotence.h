@@ -72,8 +72,7 @@ void rd_kafka_idemp_request_pid_failed (rd_kafka_broker_t *rkb,
                                         rd_kafka_resp_err_t err);
 void rd_kafka_idemp_pid_update (rd_kafka_broker_t *rkb,
                                 const rd_kafka_pid_t pid);
-int rd_kafka_idemp_request_pid (rd_kafka_t *rk, rd_kafka_broker_t *rkb,
-                                const char *reason);
+void rd_kafka_idemp_pid_fsm (rd_kafka_t *rk);
 void rd_kafka_idemp_drain_reset (rd_kafka_t *rk, const char *reason);
 void rd_kafka_idemp_drain_epoch_bump (rd_kafka_t *rk, const char *fmt, ...);
 void rd_kafka_idemp_drain_toppar (rd_kafka_toppar_t *rktp, const char *reason);
@@ -81,8 +80,16 @@ void rd_kafka_idemp_inflight_toppar_sub (rd_kafka_t *rk,
                                          rd_kafka_toppar_t *rktp);
 void rd_kafka_idemp_inflight_toppar_add (rd_kafka_t *rk,
                                          rd_kafka_toppar_t *rktp);
-void rd_kafka_idemp_coord_monitor_cb (rd_kafka_broker_t *rkb);
-void rd_kafka_idemp_coord_query (rd_kafka_t *rk);
+
+rd_kafka_broker_t *
+rd_kafka_idemp_broker_any (rd_kafka_t *rk,
+                           rd_kafka_resp_err_t *errp,
+                           char *errstr, size_t errstr_size);
+
+rd_bool_t rd_kafka_idemp_check_error (rd_kafka_t *rk,
+                                      rd_kafka_resp_err_t err,
+                                      const char *errstr);
+
 
 /**
  * @brief Call when a fatal idempotence error has occurred, when the producer

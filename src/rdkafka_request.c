@@ -3786,6 +3786,9 @@ rd_kafka_handle_InitProducerId (rd_kafka_t *rk,
  err_parse:
         err = rkbuf->rkbuf_err;
  err:
+        if (err == RD_KAFKA_RESP_ERR__DESTROY)
+                return;
+
         /* Retries are performed by idempotence state handler */
         rd_kafka_idemp_request_pid_failed(rkb, err);
 }
